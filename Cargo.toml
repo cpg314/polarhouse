@@ -3,6 +3,11 @@ name = "polarhouse"
 version = "0.1.0"
 edition = "2021"
 
+
+[profile.release]
+incremental = true
+lto = "off"
+
 [dependencies]
 anyhow = "1.0.79"
 polars = { version = "0.36.2", features = ["dtype-full", "parquet", "lazy", "is_in", "cutqcut", "strings", "concat_str", "round_series", "meta", "abs", "cross_join"] }
@@ -14,3 +19,4 @@ tokio = { version = "1.35.1", features = ["full"] }
 futures = "0.3.30"
 thiserror = "1.0.56"
 derivative = "2.2.0"
+

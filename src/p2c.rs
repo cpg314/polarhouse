@@ -1,8 +1,127 @@
 //! Polars to Clickhouse conversions
+use std::collections::HashSet;
 
+use futures::stream::{self, TryStreamExt};
+use itertools::Itertools;
+use klickhouse::IndexMap;
 use polars::prelude::*;
+use tracing::*;
 
-use super::{ClickhouseType, Error};
+use super::{structs, ClickhouseType, Error};
+
+#[derive(derivative::Derivative)]
+#[derivative(Debug)]
+#[derivative(PartialEq)]
+/// Clickhouse table schema.
+pub struct ClickhouseTable {
+    name: String,
+    cols: IndexMap<String, ClickhouseType>,
+    primary_keys: Vec<String>,
+}
+
+impl ClickhouseTable {
+    /// Deduce the table schema from a polars schema (e.g. from [DataFrame::schema]).
+    /// The primary keys must be provided.
+    pub fn from_polars_schema<T: Into<String>>(
+        name: &str,
+        schema: Schema,
+        primary_keys: impl IntoIterator<Item = T>,
+    ) -> Result<Self, Error> {
+        debug!(name, "Decoding table from schema");
+        let schema = structs::flatten_schema(&schema)?;
+        let cols: IndexMap<_, _> = schema
+            .into_iter()
+            .map(|(col, type_)| {
+                ClickhouseType::try_from(&type_).map(|type_| (col.to_string(), type_))
+            })
+            .try_collect()?;
+
+        let primary_keys: Vec<String> = primary_keys.into_iter().map(|x| x.into()).collect();
+        for key in &primary_keys {
+            if !cols.contains_key(key) {
+                return Err(Error::InvalidPrimaryKey(key.into()));
+            }
+        }
+        Ok(Self {
+            name: name.to_string(),
+            primary_keys,
+            cols,
+        })
+    }
+    /// Create the corresponding table.
+    pub async fn create(&self, client: &klickhouse::Client) -> Result<(), Error> {
+        debug!(self.name, "Creating table");
+        let query = format!(
+            "CREATE TABLE {} (
+{}
+)
+ENGINE = MergeTree()
+PRIMARY KEY({})
+",
+            self.name,
+            self.cols
+                .iter()
+                .map(|(name, type_)| format!("  `{}` {},", name, type_))
+                .join("\n"),
+            self.primary_keys.join(", ")
+        );
+        Ok(client.execute(query).await?)
+    }
+    /// Insert a [DataFrame] in Clickhouse. The schema must match.
+    // TODO: Chunk the insert
+    pub async fn insert_df(&self, df: DataFrame, client: &klickhouse::Client) -> Result<(), Error> {
+        debug!(self.name, shape = ?df.shape(), "Inserting dataframe",);
+        let df = structs::flatten(df)?;
+        if df.should_rechunk() {
+            return Err(Error::ShouldRechunk);
+        }
+        let block = self.block_from_df(df)?;
+        client
+            .insert_native_raw(
+                format!("INSERT INTO `{}` FORMAT native", self.name),
+                stream::iter([block]),
+            )
+            .await?
+            .try_collect::<Vec<_>>()
+            .await?;
+        Ok(())
+    }
+    fn block_from_df(&self, df: DataFrame) -> Result<klickhouse::block::Block, Error> {
+        let df_cols: HashSet<_> = df.get_column_names().into_iter().collect();
+        let table_cols: HashSet<_> = self.cols.keys().map(String::as_str).collect();
+        if df_cols != table_cols {
+            return Err(Error::MismatchingColumns(format!(
+                "{:?}",
+                table_cols.symmetric_difference(&df_cols)
+            )));
+        }
+        let iters: IndexMap<&String, _> = self
+            .cols
+            .iter()
+            .map(|(col, type_)| {
+                series_to_values(df.column(col).unwrap(), type_).map(|vals| (col, vals))
+            })
+            .try_collect()?;
+        let block = klickhouse::block::Block {
+            info: klickhouse::block::BlockInfo {
+                is_overflows: false,
+                bucket_num: 0,
+            },
+            rows: df.shape().0 as u64,
+            column_types: self
+                .cols
+                .clone()
+                .into_iter()
+                .map(|(col, type_)| (col, type_.into()))
+                .collect(),
+            column_data: iters
+                .into_iter()
+                .map(|(col, it)| (col.clone(), it.collect_vec()))
+                .collect(),
+        };
+        Ok(block)
+    }
+}
 
 impl TryFrom<&DataType> for ClickhouseType {
     type Error = Error;
