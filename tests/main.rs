@@ -14,8 +14,8 @@ async fn test() -> anyhow::Result<()> {
 
     // Create dataframe
     let name = Series::new("name", &["Batman", "Superman"]);
-    let age = Series::new("age", &[30, 21]);
-    let is_rich = Series::new("is_rich", &[true, false]);
+    let age = Series::new("age", &[Some(30), None]);
+    let is_rich = Series::new("is_rich", &[Some(true), None]);
     let address = StructChunked::new(
         "address",
         &[
@@ -35,7 +35,12 @@ async fn test() -> anyhow::Result<()> {
     println!("{}", df);
 
     // Insert dataframe into Clickhouse
-    let table = polarhouse::ClickhouseTable::from_polars_schema(table_name, df.schema(), ["name"])?;
+    let table = polarhouse::ClickhouseTable::from_polars_schema(
+        table_name,
+        df.schema(),
+        ["name"],
+        ["age", "is_rich"],
+    )?;
     table.create(&ch).await?;
     table.insert_df(df.clone(), &ch).await?;
 

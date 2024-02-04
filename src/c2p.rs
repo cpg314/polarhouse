@@ -112,6 +112,13 @@ impl TryFrom<&ClickhouseType> for DataType {
             {
                 DataType::Categorical(None, CategoricalOrdering::Physical)
             }
+
+            ClickhouseType::Native(klickhouse::Type::Nullable(s)) => DataType::try_from(
+                &ClickhouseType::Nullable(Box::new(ClickhouseType::Native(*s.clone()))),
+            )?,
+
+            ClickhouseType::Nullable(s) => DataType::try_from(s.as_ref())?,
+
             _ => return Err(Error::UnsupportedClickhouseType(source.clone())),
         })
     }
@@ -121,12 +128,12 @@ macro_rules! extract {
     ($values: ident, $t:ident) => {
         $values
             .into_iter()
-            .map(|val| {
-                let klickhouse::Value::$t(val) = val else {
-                    unreachable!()
-                };
-
-                val
+            .map(|val| match val {
+                klickhouse::Value::$t(val) => Some(val),
+                klickhouse::Value::Null => None,
+                _ => {
+                    unreachable!("expected {}, got {:?}", stringify!($t), val);
+                }
             })
             .collect()
     };
@@ -135,11 +142,14 @@ pub(crate) fn values_to_series(
     values: Vec<klickhouse::Value>,
     type_: ClickhouseType,
 ) -> Result<Series, Error> {
-    let mut type_k = klickhouse::Type::from(type_.clone());
-    if type_k == klickhouse::Type::LowCardinality(Box::new(klickhouse::Type::String)) {
-        type_k = klickhouse::Type::String;
-    }
+    let type_k = klickhouse::Type::from(type_.clone())
+        .strip_null()
+        .strip_low_cardinality()
+        .clone();
     for val in &values {
+        if val == &klickhouse::Value::Null {
+            continue;
+        }
         let type_ = val.guess_type();
         if type_ != type_k {
             return Err(Error::MismatchingValueType(type_, type_k));
@@ -147,15 +157,16 @@ pub(crate) fn values_to_series(
     }
 
     let extract_string = |values: Vec<klickhouse::Value>| -> Series {
-        values
+        let vals: Vec<_> = values
             .into_iter()
-            .map(|val| {
-                let klickhouse::Value::String(val) = val else {
-                    unreachable!()
-                };
-                String::from_utf8_lossy(&val).to_string()
+            .map(|val| match val {
+                klickhouse::Value::String(val) => Some(String::from_utf8_lossy(&val).to_string()),
+                klickhouse::Value::Null => None,
+                _ => unreachable!(),
             })
-            .collect()
+            .collect();
+        // Series does not implement `FromIterator<Option<String>>`.
+        Series::new("", vals)
     };
 
     let series = match type_ {
@@ -163,11 +174,12 @@ pub(crate) fn values_to_series(
 
         ClickhouseType::Bool => values
             .into_iter()
-            .map(|val| {
-                let klickhouse::Value::UInt8(val) = val else {
+            .map(|val| match val {
+                klickhouse::Value::UInt8(val) => Some(val > 0),
+                klickhouse::Value::Null => None,
+                _ => {
                     unreachable!()
-                };
-                val > 0
+                }
             })
             .collect(),
 
@@ -187,6 +199,12 @@ pub(crate) fn values_to_series(
             if *s == klickhouse::Type::String =>
         {
             extract_string(values).cast(&DataType::Categorical(None, Default::default()))?
+        }
+
+        // Nulls
+        ClickhouseType::Nullable(type_) => values_to_series(values, *type_)?,
+        ClickhouseType::Native(klickhouse::Type::Nullable(type_)) => {
+            values_to_series(values, ClickhouseType::Native(*type_))?
         }
 
         // ClickhouseType::Native(klickhouse::Type::Array(inner)) => {

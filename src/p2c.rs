@@ -26,13 +26,19 @@ impl ClickhouseTable {
         name: &str,
         schema: Schema,
         primary_keys: impl IntoIterator<Item = T>,
+        nullables: impl IntoIterator<Item = T>,
     ) -> Result<Self, Error> {
         debug!(name, "Decoding table from schema");
+        let nullables: HashSet<String> = nullables.into_iter().map(|col| col.into()).collect();
         let schema = structs::flatten_schema(&schema)?;
         let cols: IndexMap<_, _> = schema
             .into_iter()
-            .map(|(col, type_)| {
-                ClickhouseType::try_from(&type_).map(|type_| (col.to_string(), type_))
+            .map(|(col, type_)| -> Result<_, Error> {
+                let mut type_ = ClickhouseType::try_from(&type_)?;
+                if nullables.contains(col.as_str()) {
+                    type_ = type_.nullable();
+                }
+                Ok((col.to_string(), type_))
             })
             .try_collect()?;
 
@@ -159,7 +165,10 @@ macro_rules! extract_vals {
                 .$f()
                 .map_err(|_| Error::MismatchingSeriesType($series.dtype().clone()))?
                 .into_iter()
-                .map(|x| klickhouse::Value::$t(x.expect("Nullable are not yet supported").into())),
+                .map(|x| match x {
+                    Some(x) => klickhouse::Value::$t(x.into()),
+                    None => klickhouse::Value::Null,
+                }),
         )
     };
 }
@@ -217,6 +226,12 @@ pub(crate) fn series_to_values<'a>(
                     .map(|x| klickhouse::Value::String(x.unwrap().into())),
             )
         }
+        //Nulls
+        //
+        ClickhouseType::Native(klickhouse::Type::Nullable(s)) => {
+            series_to_values(series, &ClickhouseType::Native(*s.clone()))?
+        }
+        ClickhouseType::Nullable(type_) => series_to_values(series, type_)?,
         _ => todo!("{:?}", type_),
     })
 }

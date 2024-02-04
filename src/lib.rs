@@ -17,6 +17,12 @@ use std::str::FromStr;
 pub enum ClickhouseType {
     Native(klickhouse::Type),
     Bool,
+    Nullable(Box<ClickhouseType>),
+}
+impl ClickhouseType {
+    pub fn nullable(self) -> ClickhouseType {
+        Self::Nullable(Box::new(self))
+    }
 }
 impl FromStr for ClickhouseType {
     type Err = Error;
@@ -24,6 +30,8 @@ impl FromStr for ClickhouseType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if s == "Bool" {
             return Ok(Self::Bool);
+        } else if s == "Nullable(Boolean)" {
+            return Ok(ClickhouseType::Nullable(Box::new(ClickhouseType::Bool)));
         }
         Ok(Self::Native(klickhouse::Type::from_str(s)?))
     }
@@ -34,6 +42,9 @@ impl From<ClickhouseType> for klickhouse::Type {
         match source {
             ClickhouseType::Native(n) => n,
             ClickhouseType::Bool => klickhouse::Type::UInt8,
+            ClickhouseType::Nullable(n) => {
+                klickhouse::Type::Nullable(Box::new(n.as_ref().clone().into()))
+            }
         }
     }
 }
@@ -43,6 +54,7 @@ impl std::fmt::Display for ClickhouseType {
         match self {
             ClickhouseType::Native(n) => write!(f, "{}", n),
             ClickhouseType::Bool => write!(f, "Bool"),
+            ClickhouseType::Nullable(n) => write!(f, "Nullable({})", n),
         }
     }
 }

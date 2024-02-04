@@ -9,6 +9,23 @@ More specifically, it allows:
 
 Communication with Clickhouse is made through the [klickhouse] crate.
 
+```
+Polars
+┌──────────┬─────────┬──────┬───────────────────────────┐
+│ name     ┆ is_rich ┆ age  ┆ address                   │
+│ ---      ┆ ---     ┆ ---  ┆ ---                       │
+│ str      ┆ u8      ┆ i32  ┆ struct[2]                 │
+╞══════════╪═════════╪══════╪═══════════════════════════╡
+│ Batman   ┆ 1       ┆ 30   ┆ {{"Chicago","IL"},"USA"}  │
+│ Superman ┆ null    ┆ null ┆ {{"New York","NY"},"USA"} │
+└──────────┴─────────┴──────┴───────────────────────────┘
+Clickhouse
+┌─name─────┬─is_rich─┬──age─┬─address.city.city─┬─address.city.state─┬─address.country─┐
+│ Batman   │ true    │   30 │ Chicago           │ IL                 │ USA             │
+│ Superman │ null    │ null │ New York          │ NY                 │ USA             │
+└──────────┴─────────┴──────┴───────────────────┴────────────────────┴─────────────────┘
+```
+
 ### Polars to Clickhouse
 
 ```rust
@@ -17,7 +34,7 @@ let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await
 let df: DataFrame = ...
 
 // Deduce table schema from the dataframe 
-let table = polarhouse::ClickhouseTable::from_polars_schema(table_name, df.schema(), ["name"])?;
+let table = polarhouse::ClickhouseTable::from_polars_schema(table_name, df.schema(), ["name"], [])?;
 
 // Create Clickhouse table corresponding to the Dataframe (optional) 
 table.create(&ch).await?;
@@ -34,7 +51,8 @@ let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await
 // Retrieve Clickhouse query results as a Dataframe.
 let df: DataFrame = polarhouse::get_df_query(
     klickhouse::SelectBuilder::new(table_name).select("*"),
-    Default::default() & ch,
+    Default::default(),
+    &ch,
 ).await?;
 ```
 
@@ -54,4 +72,5 @@ An alternative solution would be to write an [Arrow Database Connectivity](https
 - [x] Booleans
 - [x] Categorical (Polars) / Low cardinality (Clickhouse)
 - [x] Structs (Polars), which get flattened into Clickhouse, with fields names separated by `.`
+- [x] Nullables
 - [ ] Arrays
