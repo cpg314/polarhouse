@@ -37,6 +37,12 @@ impl FromStr for ClickhouseType {
     }
 }
 
+impl From<klickhouse::Type> for ClickhouseType {
+    fn from(source: klickhouse::Type) -> Self {
+        Self::Native(source)
+    }
+}
+
 impl From<ClickhouseType> for klickhouse::Type {
     fn from(source: ClickhouseType) -> Self {
         match source {

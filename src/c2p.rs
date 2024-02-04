@@ -73,7 +73,7 @@ pub async fn get_df_query(
     let mut ch_types: IndexMap<String, ClickhouseType> = initial
         .column_types
         .into_iter()
-        .map(|(col, type_)| -> Result<_, Error> { Ok((col, ClickhouseType::Native(type_))) })
+        .map(|(col, type_)| -> Result<_, Error> { Ok((col, ClickhouseType::from(type_))) })
         .try_collect()?;
     ch_types.extend(types);
 
@@ -101,22 +101,23 @@ impl TryFrom<&ClickhouseType> for DataType {
 
             ClickhouseType::Bool => DataType::Boolean,
 
-            // TODO: Arrays
-            // ClickhouseType::Native(klickhouse::Type::Array(inner)) => {
-            //     let inner = inner.as_ref().clone();
-            //     let inner = ClickhouseType::Native(inner);
-            //     DataType::Array(Box::new(DataType::try_from(&inner)?), 1)
-            // }
+            // Lists
+            ClickhouseType::Native(klickhouse::Type::Array(inner)) => {
+                let inner = ClickhouseType::from(*inner.clone());
+                DataType::List(Box::new(DataType::try_from(&inner)?))
+            }
+
+            // Categoricals
             ClickhouseType::Native(klickhouse::Type::LowCardinality(s))
                 if s == &Box::new(klickhouse::Type::String) =>
             {
                 DataType::Categorical(None, CategoricalOrdering::Physical)
             }
 
-            ClickhouseType::Native(klickhouse::Type::Nullable(s)) => DataType::try_from(
-                &ClickhouseType::Nullable(Box::new(ClickhouseType::Native(*s.clone()))),
-            )?,
-
+            // Nulls
+            ClickhouseType::Native(klickhouse::Type::Nullable(s)) => {
+                DataType::try_from(&ClickhouseType::from(*s.clone()).nullable())?
+            }
             ClickhouseType::Nullable(s) => DataType::try_from(s.as_ref())?,
 
             _ => return Err(Error::UnsupportedClickhouseType(source.clone())),
@@ -203,13 +204,24 @@ pub(crate) fn values_to_series(
 
         // Nulls
         ClickhouseType::Nullable(type_) => values_to_series(values, *type_)?,
-        ClickhouseType::Native(klickhouse::Type::Nullable(type_)) => {
-            values_to_series(values, ClickhouseType::Native(*type_))?
+        ClickhouseType::Native(klickhouse::Type::Nullable(inner)) => {
+            values_to_series(values, ClickhouseType::from(*inner))?
         }
 
-        // ClickhouseType::Native(klickhouse::Type::Array(inner)) => {
-        //     todo!("{:?}", inner);
-        // }
+        ClickhouseType::Native(klickhouse::Type::Array(inner)) => {
+            let inner = ClickhouseType::from(*inner);
+            let series: Vec<Series> = values
+                .into_iter()
+                .map(move |val| match val {
+                    klickhouse::Value::Array(val) => values_to_series(val, inner.clone()),
+                    klickhouse::Value::Null => Err(Error::UnexpectedNull("In array")),
+                    _ => Err(Error::UnsupportedClickhouseType(ClickhouseType::Native(
+                        val.guess_type(),
+                    ))),
+                })
+                .try_collect()?;
+            Series::new("", series)
+        }
         _ => {
             return Err(Error::UnsupportedClickhouseType(type_));
         }

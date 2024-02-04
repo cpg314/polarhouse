@@ -73,4 +73,9 @@ An alternative solution would be to write an [Arrow Database Connectivity](https
 - [x] Categorical (Polars) / Low cardinality (Clickhouse)
 - [x] Structs (Polars), which get flattened into Clickhouse, with fields names separated by `.`
 - [x] Nullables
-- [ ] Arrays
+- [x] Lists (Polars) / Arrays (Clickhouse)
+- [ ] Arrays (Polars)
+- [ ] DateTime
+- [ ] Time
+- [ ] Duration
+- [ ] ...

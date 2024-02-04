@@ -24,6 +24,8 @@ pub enum Error {
     MismatchingValueType(klickhouse::Type, klickhouse::Type),
     #[error("Unexpected series type: {0}")]
     MismatchingSeriesType(DataType),
+    #[error("Unexpected null value: {0}")]
+    UnexpectedNull(&'static str),
     #[error("Column {0} returned by Clickhouse is not present locally")]
     MissingColumnLocal(String),
     #[error("Dataframe should be rechunked")]

@@ -15,6 +15,13 @@ async fn test() -> anyhow::Result<()> {
     // Create dataframe
     let name = Series::new("name", &["Batman", "Superman"]);
     let age = Series::new("age", &[Some(30), None]);
+    let powers = Series::new(
+        "powers",
+        &[
+            Series::new("", ["intelligence"]),
+            Series::new("", ["flying", "vision"]),
+        ],
+    );
     let is_rich = Series::new("is_rich", &[Some(true), None]);
     let address = StructChunked::new(
         "address",
@@ -22,8 +29,8 @@ async fn test() -> anyhow::Result<()> {
             StructChunked::new(
                 "city",
                 &[
-                    Series::new("city", &["Chicago", "New York"]),
-                    Series::new("state", &["IL", "NY"]),
+                    Series::new("city", &["Gotham", "New York"]),
+                    Series::new("state", &[None, Some("NY")]),
                 ],
             )?
             .into_series(),
@@ -31,7 +38,7 @@ async fn test() -> anyhow::Result<()> {
         ],
     )?
     .into_series();
-    let df: DataFrame = [name, is_rich, age, address].into_iter().collect();
+    let df: DataFrame = [name, is_rich, age, powers, address].into_iter().collect();
     println!("{}", df);
 
     // Insert dataframe into Clickhouse
@@ -39,7 +46,7 @@ async fn test() -> anyhow::Result<()> {
         table_name,
         df.schema(),
         ["name"],
-        ["age", "is_rich"],
+        ["age", "is_rich", "address.city.state"],
     )?;
     table.create(&ch).await?;
     table.insert_df(df.clone(), &ch).await?;

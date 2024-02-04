@@ -105,7 +105,7 @@ PRIMARY KEY({})
             .cols
             .iter()
             .map(|(col, type_)| {
-                series_to_values(df.column(col).unwrap(), type_).map(|vals| (col, vals))
+                series_to_values(df.column(col).unwrap(), type_.clone()).map(|vals| (col, vals))
             })
             .try_collect()?;
         let block = klickhouse::block::Block {
@@ -153,6 +153,11 @@ impl TryFrom<&DataType> for ClickhouseType {
             DataType::Categorical(_, _) => Self::Native(klickhouse::Type::LowCardinality(
                 Box::new(klickhouse::Type::String),
             )),
+
+            DataType::List(t) => Self::Native(klickhouse::Type::Array(Box::new(
+                ClickhouseType::try_from(t.as_ref())?.into(),
+            ))),
+
             _ => return Err(Error::UnsupportedPolarsType(source.clone())),
         })
     }
@@ -175,7 +180,7 @@ macro_rules! extract_vals {
 /// Convert a polars [Series] into an iterator of [klickhouse::Value].
 pub(crate) fn series_to_values<'a>(
     series: &'a Series,
-    type_: &ClickhouseType,
+    type_: ClickhouseType,
 ) -> Result<Box<dyn Iterator<Item = klickhouse::Value> + 'a>, Error> {
     Ok(match type_ {
         ClickhouseType::Native(klickhouse::Type::String) => {
@@ -216,7 +221,7 @@ pub(crate) fn series_to_values<'a>(
         ClickhouseType::Bool => extract_vals!(series, UInt8, bool),
 
         ClickhouseType::Native(klickhouse::Type::LowCardinality(s))
-            if s == &Box::new(klickhouse::Type::String) =>
+            if s.as_ref() == &klickhouse::Type::String =>
         {
             Box::new(
                 series
@@ -226,12 +231,33 @@ pub(crate) fn series_to_values<'a>(
                     .map(|x| klickhouse::Value::String(x.unwrap().into())),
             )
         }
-        //Nulls
-        //
-        ClickhouseType::Native(klickhouse::Type::Nullable(s)) => {
-            series_to_values(series, &ClickhouseType::Native(*s.clone()))?
+
+        ClickhouseType::Native(klickhouse::Type::Array(type_)) => {
+            Box::new(
+                series
+                    .list()
+                    .map_err(|_| Error::MismatchingSeriesType(series.dtype().clone()))?
+                    .into_iter()
+                    .map(move |v| match v {
+                        Some(v) => klickhouse::Value::Array(
+                            series_to_values(&v, ClickhouseType::from(*type_.clone()))
+                                // TODO: Handle the error without allocating
+                                .unwrap()
+                                .collect(),
+                        ),
+                        None => klickhouse::Value::Null,
+                    }),
+            )
         }
-        ClickhouseType::Nullable(type_) => series_to_values(series, type_)?,
-        _ => todo!("{:?}", type_),
+
+        //Nulls
+        ClickhouseType::Native(klickhouse::Type::Nullable(s)) => {
+            series_to_values(series, ClickhouseType::from(*s))?
+        }
+        ClickhouseType::Nullable(type_) => series_to_values(series, *type_)?,
+
+        _ => {
+            return Err(Error::UnsupportedClickhouseType(type_.clone()));
+        }
     })
 }
