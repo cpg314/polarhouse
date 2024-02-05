@@ -88,18 +88,23 @@ PRIMARY KEY({})
         if df.should_rechunk() {
             return Err(Error::ShouldRechunk);
         }
-        let block = self.block_from_df(df)?;
-        client
-            .insert_native_raw(
-                format!("INSERT INTO `{}` FORMAT native", self.name),
-                stream::iter([block]),
-            )
-            .await?
-            .try_collect::<Vec<_>>()
-            .await?;
+        let blocks = self.blocks_from_df(df)?;
+
+        for block in &blocks {
+            debug!(rows = block.rows, "Inserting block");
+            client
+                .insert_native_raw(
+                    format!("INSERT INTO `{}` FORMAT native", self.name),
+                    stream::iter([block]),
+                )
+                .await?
+                .try_collect::<Vec<_>>()
+                .await?;
+        }
+        debug!(self.name, "Finished inserting dataframe");
         Ok(())
     }
-    fn block_from_df(&self, df: DataFrame) -> Result<klickhouse::block::Block, Error> {
+    fn blocks_from_df(&self, df: DataFrame) -> Result<BlockIntoIterator, Error> {
         let df_cols: HashSet<_> = df.get_column_names().into_iter().collect();
         let table_cols: HashSet<_> = self.cols.keys().map(String::as_str).collect();
         if df_cols != table_cols {
@@ -108,31 +113,75 @@ PRIMARY KEY({})
                 table_cols.symmetric_difference(&df_cols)
             )));
         }
-        let iters: IndexMap<&String, _> = self
+        Ok(BlockIntoIterator {
+            df,
+            cols: self.cols.clone(),
+        })
+    }
+}
+struct BlockIterator<'a> {
+    info: klickhouse::block::BlockInfo,
+    column_types: IndexMap<String, klickhouse::Type>,
+    iters: IndexMap<String, Box<dyn ExactSizeIterator<Item = klickhouse::Value> + 'a>>,
+}
+
+impl<'a> Iterator for BlockIterator<'a> {
+    type Item = klickhouse::block::Block;
+    fn next(&mut self) -> Option<Self::Item> {
+        let column_data: IndexMap<String, Vec<klickhouse::Value>> = self
+            .iters
+            .iter_mut()
+            .map(|(k, it)| (k.clone(), it.take(200_000).collect_vec()))
+            .collect();
+        let rows = column_data
+            .values()
+            .map(|v| v.len() as u64)
+            .next()
+            .unwrap_or_default();
+        if rows == 0 {
+            return None;
+        }
+        Some(klickhouse::block::Block {
+            info: self.info.clone(),
+            rows,
+            column_types: self.column_types.clone(),
+            column_data,
+        })
+    }
+}
+struct BlockIntoIterator {
+    df: DataFrame,
+    cols: IndexMap<String, ClickhouseType>,
+}
+impl<'a> IntoIterator for &'a BlockIntoIterator {
+    type Item = klickhouse::block::Block;
+
+    type IntoIter = BlockIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        let info = klickhouse::block::BlockInfo {
+            is_overflows: false,
+            bucket_num: 0,
+        };
+        let column_types: IndexMap<String, klickhouse::Type> = self
+            .cols
+            .clone()
+            .into_iter()
+            .map(|(col, type_)| (col, type_.into()))
+            .collect();
+        let iters: IndexMap<String, _> = self
             .cols
             .iter()
-            .map(|(col, type_)| {
-                series_to_values(df.column(col).unwrap(), type_.clone()).map(|vals| (col, vals))
+            .map(move |(col, type_)| {
+                let vals = series_to_values(self.df.column(col).unwrap(), type_.clone()).unwrap();
+                (col.clone(), vals)
             })
-            .try_collect()?;
-        let block = klickhouse::block::Block {
-            info: klickhouse::block::BlockInfo {
-                is_overflows: false,
-                bucket_num: 0,
-            },
-            rows: df.shape().0 as u64,
-            column_types: self
-                .cols
-                .clone()
-                .into_iter()
-                .map(|(col, type_)| (col, type_.into()))
-                .collect(),
-            column_data: iters
-                .into_iter()
-                .map(|(col, it)| (col.clone(), it.collect_vec()))
-                .collect(),
-        };
-        Ok(block)
+            .collect();
+        BlockIterator {
+            info,
+            column_types,
+            iters,
+        }
     }
 }
 
@@ -188,7 +237,7 @@ macro_rules! extract_vals {
 pub(crate) fn series_to_values<'a>(
     series: &'a Series,
     type_: ClickhouseType,
-) -> Result<Box<dyn Iterator<Item = klickhouse::Value> + 'a>, Error> {
+) -> Result<Box<dyn ExactSizeIterator<Item = klickhouse::Value> + 'a>, Error> {
     Ok(match type_ {
         ClickhouseType::Native(klickhouse::Type::String) => {
             extract_vals!(series, String, str)
