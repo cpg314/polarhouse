@@ -30,12 +30,17 @@ impl ClickhouseTable {
     ) -> Result<Self, Error> {
         debug!(name, "Decoding table from schema");
         let nullables: HashSet<String> = nullables.into_iter().map(|col| col.into()).collect();
+
         let schema = structs::flatten_schema(&schema)?;
         let cols: IndexMap<_, _> = schema
             .into_iter()
             .map(|(col, type_)| -> Result<_, Error> {
                 let mut type_ = ClickhouseType::try_from(&type_)?;
-                if nullables.contains(col.as_str()) {
+                if nullables.contains(col.as_str())
+                    || nullables
+                        .iter()
+                        .any(|n| col.starts_with(&format!("{}.", n)))
+                {
                     type_ = type_.nullable();
                 }
                 Ok((col.to_string(), type_))
@@ -55,7 +60,7 @@ impl ClickhouseTable {
         })
     }
     /// Create the corresponding table.
-    pub async fn create(&self, client: &klickhouse::Client) -> Result<(), Error> {
+    pub async fn create(&self, client: &klickhouse::Client, suffix: &str) -> Result<(), Error> {
         debug!(self.name, "Creating table");
         let query = format!(
             "CREATE TABLE {} (
@@ -63,13 +68,15 @@ impl ClickhouseTable {
 )
 ENGINE = MergeTree()
 PRIMARY KEY({})
+{}
 ",
             self.name,
             self.cols
                 .iter()
                 .map(|(name, type_)| format!("  `{}` {},", name, type_))
                 .join("\n"),
-            self.primary_keys.join(", ")
+            self.primary_keys.join(", "),
+            suffix
         );
         Ok(client.execute(query).await?)
     }

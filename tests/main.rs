@@ -48,7 +48,7 @@ async fn test() -> anyhow::Result<()> {
         ["name"],
         ["age", "is_rich", "address.city.state"],
     )?;
-    table.create(&ch).await?;
+    table.create(&ch, "").await?;
     table.insert_df(df.clone(), &ch).await?;
 
     // Retrieve dataframe from Clickhouse
