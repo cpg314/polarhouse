@@ -9,23 +9,62 @@ use tracing::*;
 
 use super::{structs, ClickhouseType, Error};
 
+pub type ValueMap = IndexMap<String, klickhouse::Value>;
+
 #[derive(derivative::Derivative)]
 #[derivative(Debug)]
 #[derivative(PartialEq)]
 /// Clickhouse table schema.
 pub struct ClickhouseTable {
     name: String,
-    cols: IndexMap<String, ClickhouseType>,
-    primary_keys: Vec<String>,
+    pub types: IndexMap<String, ClickhouseType>,
+}
+
+#[derive(Default)]
+pub struct TableCreationOptions<'a> {
+    pub primary_keys: &'a [&'a str],
+    pub suffix: &'a str,
+    pub if_not_exists: bool,
 }
 
 impl ClickhouseTable {
+    /// Retrieve the table schema from the Clickhouse server.
+    ///
+    /// The output can be passed to [get_df_query](crate::get_df_query) to get an exact mapping of types. Indeed, Clickhouse returns for example booleans asthe internal storage type ([u8]).
+    pub async fn from_server(table: &str, client: &klickhouse::Client) -> Result<Self, Error> {
+        debug!(table, "Retrieving table information");
+        #[derive(klickhouse::Row, Debug)]
+        struct SchemaRow {
+            name: String,
+            #[klickhouse(rename = "type")]
+            type_: String,
+        }
+        Ok(Self {
+            name: table.into(),
+            types: client
+                .query_collect::<SchemaRow>(format!("DESCRIBE TABLE {}", table))
+                .await?
+                .into_iter()
+                .map(|row| {
+                    row.type_
+                        .parse::<ClickhouseType>()
+                        .map(|type_| (row.name, type_))
+                })
+                .try_collect()?,
+        })
+    }
+    pub async fn get_df_query(
+        &self,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        client: &klickhouse::Client,
+    ) -> Result<DataFrame, Error> {
+        crate::get_df_query(query, self.types.clone(), client).await
+    }
     /// Deduce the table schema from a polars schema (e.g. from [DataFrame::schema]).
     /// The primary keys must be provided.
     pub fn from_polars_schema<T: Into<String>>(
         name: &str,
         schema: Schema,
-        primary_keys: impl IntoIterator<Item = T>,
         nullables: impl IntoIterator<Item = T>,
     ) -> Result<Self, Error> {
         debug!(name, "Decoding table from schema");
@@ -47,56 +86,79 @@ impl ClickhouseTable {
             })
             .try_collect()?;
 
-        let primary_keys: Vec<String> = primary_keys.into_iter().map(|x| x.into()).collect();
+        Ok(Self {
+            name: name.to_string(),
+            types: cols,
+        })
+    }
+    pub fn create_query(&self, options: TableCreationOptions<'_>) -> Result<String, Error> {
+        let primary_keys: Vec<String> =
+            options.primary_keys.iter().map(|x| x.to_string()).collect();
         for key in &primary_keys {
-            if !cols.contains_key(key) {
+            if !self.types.contains_key(key) {
                 return Err(Error::InvalidPrimaryKey(key.into()));
             }
         }
-        Ok(Self {
-            name: name.to_string(),
-            primary_keys,
-            cols,
-        })
-    }
-    /// Create the corresponding table.
-    pub async fn create(&self, client: &klickhouse::Client, suffix: &str) -> Result<(), Error> {
-        debug!(self.name, "Creating table");
-        let query = format!(
-            "CREATE TABLE {} (
+        Ok(format!(
+            "CREATE TABLE {} `{}` (
 {}
 )
 ENGINE = MergeTree()
 PRIMARY KEY({})
-{}
 ",
+            if options.if_not_exists {
+                "IF NOT EXISTS"
+            } else {
+                ""
+            },
             self.name,
-            self.cols
+            self.types
                 .iter()
                 .map(|(name, type_)| format!("  `{}` {},", name, type_))
                 .join("\n"),
-            self.primary_keys.join(", "),
-            suffix
-        );
-        Ok(client.execute(query).await?)
+            primary_keys.join(", "),
+        ))
     }
-    /// Insert a [DataFrame] in Clickhouse. The schema must match.
-    // TODO: Chunk the insert
-    pub async fn insert_df(&self, df: DataFrame, client: &klickhouse::Client) -> Result<(), Error> {
+    /// Create the corresponding table.
+    pub async fn create<'a>(
+        &self,
+        options: TableCreationOptions<'a>,
+        client: &klickhouse::Client,
+    ) -> Result<(), Error> {
+        debug!(self.name, "Creating table");
+        let suffix = options.suffix.to_string();
+        Ok(client
+            .execute([self.create_query(options)?, suffix].join("\n"))
+            .await?)
+    }
+    /// Insert a [DataFrame] in Clickhouse.
+    /// The schemas must match.
+    /// The [defaults] argument specifies constant values for columns present in the table but not
+    /// in the dataframe.
+    pub async fn insert_df(
+        &self,
+        df: DataFrame,
+        defaults: ValueMap,
+        client: &klickhouse::Client,
+    ) -> Result<(), Error> {
         debug!(self.name, shape = ?df.shape(), "Inserting dataframe",);
         let df = structs::flatten(df)?;
         if df.should_rechunk() {
             return Err(Error::ShouldRechunk);
         }
-        let blocks = self.blocks_from_df(df)?;
+        let blocks = self.blocks_from_df(df, &defaults)?;
 
-        for block in &blocks {
+        let query = format!("INSERT INTO `{}` FORMAT native", self.name);
+        for mut block in blocks.try_into_iter()? {
             debug!(rows = block.rows, "Inserting block");
+            for (k, v) in defaults.clone() {
+                block
+                    .column_data
+                    .entry(k)
+                    .or_insert_with(|| std::iter::repeat(v).take(block.rows as usize).collect());
+            }
             client
-                .insert_native_raw(
-                    format!("INSERT INTO `{}` FORMAT native", self.name),
-                    stream::iter([block]),
-                )
+                .insert_native_raw(query.clone(), stream::iter([block]))
                 .await?
                 .try_collect::<Vec<_>>()
                 .await?;
@@ -104,18 +166,30 @@ PRIMARY KEY({})
         debug!(self.name, "Finished inserting dataframe");
         Ok(())
     }
-    fn blocks_from_df(&self, df: DataFrame) -> Result<BlockIntoIterator, Error> {
-        let df_cols: HashSet<_> = df.get_column_names().into_iter().collect();
-        let table_cols: HashSet<_> = self.cols.keys().map(String::as_str).collect();
+    fn blocks_from_df(
+        &self,
+        df: DataFrame,
+        defaults: &ValueMap,
+    ) -> Result<BlockIntoIterator, Error> {
+        let mut df_cols: HashSet<_> = df.get_column_names().into_iter().collect();
+        let table_cols: HashSet<_> = self.types.keys().map(String::as_str).collect();
+
+        if !df_cols.is_subset(&table_cols) {
+            return Err(Error::MismatchingColumns(format!(
+                "{:?} are not table columns",
+                df_cols.difference(&table_cols)
+            )));
+        }
+        df_cols.extend(defaults.keys().map(|x| x.as_str()));
         if df_cols != table_cols {
             return Err(Error::MismatchingColumns(format!(
-                "{:?}",
-                table_cols.symmetric_difference(&df_cols)
+                "Missing table columns: {:?}",
+                table_cols.difference(&df_cols)
             )));
         }
         Ok(BlockIntoIterator {
             df,
-            cols: self.cols.clone(),
+            cols: self.types.clone(),
         })
     }
 }
@@ -153,35 +227,34 @@ struct BlockIntoIterator {
     df: DataFrame,
     cols: IndexMap<String, ClickhouseType>,
 }
-impl<'a> IntoIterator for &'a BlockIntoIterator {
-    type Item = klickhouse::block::Block;
-
-    type IntoIter = BlockIterator<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
+impl BlockIntoIterator {
+    fn try_into_iter(&self) -> Result<BlockIterator, Error> {
         let info = klickhouse::block::BlockInfo {
             is_overflows: false,
             bucket_num: 0,
         };
+        // This covers all columns.
         let column_types: IndexMap<String, klickhouse::Type> = self
             .cols
             .clone()
             .into_iter()
             .map(|(col, type_)| (col, type_.into()))
             .collect();
+        // This only contains the columns from the dataframe, not the defaults.
         let iters: IndexMap<String, _> = self
-            .cols
+            .df
+            .get_columns()
             .iter()
-            .map(move |(col, type_)| {
-                let vals = series_to_values(self.df.column(col).unwrap(), type_.clone()).unwrap();
-                (col.clone(), vals)
+            .map(|col| -> Result<_, Error> {
+                let values = series_to_values(col, self.cols.get(col.name()).unwrap().clone())?;
+                Ok((col.name().to_string(), values))
             })
-            .collect();
-        BlockIterator {
+            .try_collect()?;
+        Ok(BlockIterator {
             info,
             column_types,
             iters,
-        }
+        })
     }
 }
 

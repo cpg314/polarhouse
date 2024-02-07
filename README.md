@@ -4,6 +4,7 @@
 - the [Clickhouse](https://clickhouse.com/) columnar database.
 
 More specifically, it allows:
+
 - inserting Polars Dataframes into Clickhouse tables (and creating these if necessary).
 - and vice-versa retrieving Clickhouse query results as Polars Dataframes.
 
@@ -33,11 +34,11 @@ let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await
 
 let df: DataFrame = ...
 
-// Deduce table schema from the dataframe 
-let table = polarhouse::ClickhouseTable::from_polars_schema(table_name, df.schema(), ["name"], [])?;
+// Deduce table schema from the dataframe
+let table = polarhouse::ClickhouseTable::from_polars_schema(table_name, df.schema(), [])?;
 
-// Create Clickhouse table corresponding to the Dataframe (optional) 
-table.create(&ch).await?;
+// Create Clickhouse table corresponding to the Dataframe (optional)
+table.create(&ch, TableCreateOptions { primary_keys: &["name"] , ..Default::default() }).await?;
 
 // Insert dataframe contents into table
 table.insert_df(df, &ch).await?;

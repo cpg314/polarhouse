@@ -1,3 +1,4 @@
+use polarhouse::TableCreationOptions;
 use polars::prelude::*;
 
 #[tokio::test]
@@ -45,25 +46,35 @@ async fn test() -> anyhow::Result<()> {
     let table = polarhouse::ClickhouseTable::from_polars_schema(
         table_name,
         df.schema(),
-        ["name"],
         ["age", "is_rich", "address.city.state"],
     )?;
-    table.create(&ch, "").await?;
-    table.insert_df(df.clone(), &ch).await?;
-
-    // Retrieve dataframe from Clickhouse
-    let types = polarhouse::table_types_from_clickhouse(table_name, &ch).await?;
-    for types in [Default::default(), types] {
-        let df2 = polarhouse::get_df_query(
-            klickhouse::SelectBuilder::new(table_name).select("*"),
-            types,
+    table
+        .create(
+            TableCreationOptions {
+                primary_keys: &["name"],
+                ..Default::default()
+            },
             &ch,
         )
         .await?;
-        println!("{}", df2);
+    table.insert_df(df.clone(), Default::default(), &ch).await?;
 
-        assert_eq!(df, df2);
-    }
+    // Retrieve dataframe from Clickhouse
+    let df2 = polarhouse::get_df_query(
+        klickhouse::SelectBuilder::new(table_name).select("*"),
+        Default::default(),
+        &ch,
+    )
+    .await?;
+    assert_eq!(df, df2);
+    println!("{}", df2);
+
+    // Get types from Clickhouse, which allows retrieving booleans as bools rather than u8.
+    let table = polarhouse::ClickhouseTable::from_server(table_name, &ch).await?;
+    let df2 = table
+        .get_df_query(klickhouse::SelectBuilder::new(table_name).select("*"), &ch)
+        .await?;
+    println!("{}", df2);
 
     Ok(())
 }
