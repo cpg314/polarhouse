@@ -46,6 +46,7 @@ async fn test() -> anyhow::Result<()> {
     let table = polarhouse::ClickhouseTable::from_polars_schema(
         table_name,
         df.schema(),
+        Default::default(),
         ["age", "is_rich", "address.city.state"],
     )?;
     table

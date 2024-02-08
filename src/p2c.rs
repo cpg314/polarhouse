@@ -65,24 +65,32 @@ impl ClickhouseTable {
     pub fn from_polars_schema<T: Into<String>>(
         name: &str,
         schema: Schema,
+        defaults: IndexMap<String, ClickhouseType>,
         nullables: impl IntoIterator<Item = T>,
     ) -> Result<Self, Error> {
         debug!(name, "Decoding table from schema");
         let nullables: HashSet<String> = nullables.into_iter().map(|col| col.into()).collect();
 
         let schema = structs::flatten_schema(&schema)?;
+
         let cols: IndexMap<_, _> = schema
             .into_iter()
             .map(|(col, type_)| -> Result<_, Error> {
-                let mut type_ = ClickhouseType::try_from(&type_)?;
-                if nullables.contains(col.as_str())
-                    || nullables
-                        .iter()
-                        .any(|n| col.starts_with(&format!("{}.", n)))
-                {
-                    type_ = type_.nullable();
+                Ok((col.to_string(), ClickhouseType::try_from(&type_)?))
+            })
+            .chain(defaults.into_iter().map(Ok))
+            .map(|res| match res {
+                Ok((col, mut type_)) => {
+                    if nullables.contains(col.as_str())
+                        || nullables
+                            .iter()
+                            .any(|n| col.starts_with(&format!("{}.", n)))
+                    {
+                        type_ = type_.nullable();
+                    }
+                    Ok((col, type_))
                 }
-                Ok((col.to_string(), type_))
+                Err(e) => Err(e),
             })
             .try_collect()?;
 
