@@ -101,6 +101,8 @@ impl TryFrom<&ClickhouseType> for DataType {
 
             ClickhouseType::Bool => DataType::Boolean,
 
+            ClickhouseType::Native(klickhouse::Type::Uuid) => DataType::String,
+
             // Lists
             ClickhouseType::Native(klickhouse::Type::Array(inner)) => {
                 let inner = ClickhouseType::from(*inner.clone());
@@ -127,17 +129,21 @@ impl TryFrom<&ClickhouseType> for DataType {
 
 macro_rules! extract {
     ($values: ident, $t:ident) => {
+        extract!($values, $t, (|x| x))
+    };
+    ($values: ident, $t:ident, $f: expr) => {{
+        let f = $f;
         $values
             .into_iter()
             .map(|val| match val {
-                klickhouse::Value::$t(val) => Some(val),
+                klickhouse::Value::$t(val) => Some(f(val)),
                 klickhouse::Value::Null => None,
                 _ => {
                     unreachable!("expected {}, got {:?}", stringify!($t), val);
                 }
             })
             .collect()
-    };
+    }};
 }
 pub(crate) fn values_to_series(
     values: Vec<klickhouse::Value>,
@@ -158,14 +164,8 @@ pub(crate) fn values_to_series(
     }
 
     let extract_string = |values: Vec<klickhouse::Value>| -> Series {
-        let vals: Vec<_> = values
-            .into_iter()
-            .map(|val| match val {
-                klickhouse::Value::String(val) => Some(String::from_utf8_lossy(&val).to_string()),
-                klickhouse::Value::Null => None,
-                _ => unreachable!(),
-            })
-            .collect();
+        let vals: Vec<_> = extract!(values, String, |val: Vec<u8>| String::from_utf8_lossy(&val)
+            .to_string());
         // Series does not implement `FromIterator<Option<String>>`.
         Series::new("", vals)
     };
@@ -173,16 +173,12 @@ pub(crate) fn values_to_series(
     let series = match type_ {
         ClickhouseType::Native(klickhouse::Type::String) => extract_string(values),
 
-        ClickhouseType::Bool => values
-            .into_iter()
-            .map(|val| match val {
-                klickhouse::Value::UInt8(val) => Some(val > 0),
-                klickhouse::Value::Null => None,
-                _ => {
-                    unreachable!()
-                }
-            })
-            .collect(),
+        ClickhouseType::Bool => extract!(values, UInt8, |val: u8| val > 0),
+
+        ClickhouseType::Native(klickhouse::Type::Uuid) => {
+            let vals: Vec<_> = extract!(values, Uuid, |val: klickhouse::Uuid| val.to_string());
+            Series::new("", vals)
+        }
 
         ClickhouseType::Native(klickhouse::Type::UInt8) => extract!(values, UInt8),
         ClickhouseType::Native(klickhouse::Type::UInt16) => extract!(values, UInt16),

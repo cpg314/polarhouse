@@ -75,6 +75,7 @@ An alternative solution would be to write an [Arrow Database Connectivity](https
 - [x] Structs (Polars), which get flattened into Clickhouse, with fields names separated by `.`
 - [x] Nullables
 - [x] Lists (Polars) / Arrays (Clickhouse)
+- [x] UUIDs (mapped to Strings in Polars)
 - [ ] Arrays (Polars)
 - [ ] DateTime
 - [ ] Time
