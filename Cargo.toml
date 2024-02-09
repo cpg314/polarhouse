@@ -10,7 +10,7 @@ lto = "off"
 
 [dependencies]
 anyhow = "1.0.79"
-polars = { version = "0.36.2", features = ["dtype-full", "parquet", "lazy", "is_in", "cutqcut", "strings", "concat_str", "round_series", "meta", "abs", "cross_join"] }
+polars = { version = "0.37.0", features = ["dtype-full", "parquet", "lazy", "strings", "meta", "regex"] }
 tracing = { version = "0.1.37", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.17", features = ["json"] }
 klickhouse = "0.11.0"

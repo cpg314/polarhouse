@@ -88,7 +88,7 @@ pub fn unflatten(series: IndexMap<String, Series>) -> Result<IndexMap<String, Se
             if let Some((prefix, s)) = name
                 .split('.')
                 .next()
-                .and_then(|prefix| structs.remove(prefix).map(|s| (prefix, s)))
+                .and_then(|prefix| structs.shift_remove(prefix).map(|s| (prefix, s)))
             {
                 Some((prefix.to_string(), s))
             } else if name.contains('.') {
