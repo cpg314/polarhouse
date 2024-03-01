@@ -188,6 +188,7 @@ pub(crate) fn values_to_series(
         ClickhouseType::Native(klickhouse::Type::Int8) => extract!(values, Int8),
         ClickhouseType::Native(klickhouse::Type::Int16) => extract!(values, Int16),
         ClickhouseType::Native(klickhouse::Type::Int32) => extract!(values, Int32),
+        ClickhouseType::Native(klickhouse::Type::Int64) => extract!(values, Int64),
 
         ClickhouseType::Native(klickhouse::Type::Float32) => extract!(values, Float32),
         ClickhouseType::Native(klickhouse::Type::Float64) => extract!(values, Float64),
