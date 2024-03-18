@@ -65,6 +65,13 @@ This is for now only a proof of concept.
 
 An alternative solution would be to write an [Arrow Database Connectivity](https://arrow.apache.org/docs/format/ADBC.html) driver for Clickhouse, and use [Polars' ADBC support](https://docs.pola.rs/user-guide/io/database/).
 
+### Tests
+
+```
+$ docker run --network host --rm --name clickhouse clickhouse
+$ cargo nextest run -r --nocapture
+```
+
 ### Supported types
 
 - [x] Integers

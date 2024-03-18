@@ -1,19 +1,7 @@
 use polarhouse::TableCreationOptions;
 use polars::prelude::*;
 
-#[tokio::test]
-async fn test() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-    polars::enable_string_cache();
-
-    let ch = klickhouse::Client::connect("localhost:19000", Default::default()).await?;
-
-    // Setup
-    let table_name = "superheros";
-    ch.execute(format!("DROP TABLE IF EXISTS {}", table_name))
-        .await?;
-
-    // Create dataframe
+fn create_df() -> anyhow::Result<DataFrame> {
     let name = Series::new("name", &["Batman", "Superman"]);
     let age = Series::new("age", &[Some(30), None]);
     let powers = Series::new(
@@ -39,8 +27,26 @@ async fn test() -> anyhow::Result<()> {
         ],
     )?
     .into_series();
-    let df: DataFrame = [name, is_rich, age, powers, address].into_iter().collect();
+    Ok([name, is_rich, age, powers, address].into_iter().collect())
+}
+
+#[tokio::test]
+async fn test() -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+    polars::enable_string_cache();
+
+    let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await?;
+
+    // Setup
+    let table_name = "superheros";
+    ch.execute(format!("DROP TABLE IF EXISTS {}", table_name))
+        .await?;
+
+    // Create dataframe
+    let df = create_df()?;
     println!("{}", df);
+
+    println!("{:?}", df.schema());
 
     // Insert dataframe into Clickhouse
     let table = polarhouse::ClickhouseTable::from_polars_schema(
