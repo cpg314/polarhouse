@@ -16,7 +16,7 @@ pub type ValueMap = IndexMap<String, klickhouse::Value>;
 #[derivative(PartialEq)]
 /// Clickhouse table schema.
 pub struct ClickhouseTable {
-    name: String,
+    pub name: String,
     pub types: IndexMap<String, ClickhouseType>,
 }
 
@@ -30,7 +30,8 @@ pub struct TableCreationOptions<'a> {
 impl ClickhouseTable {
     /// Retrieve the table schema from the Clickhouse server.
     ///
-    /// The output can be passed to [get_df_query](crate::get_df_query) to get an exact mapping of types. Indeed, Clickhouse returns for example booleans asthe internal storage type ([u8]).
+    /// The output can be passed to [get_df_query](crate::get_df_query) to get an exact mapping of types.
+    /// Indeed, Clickhouse returns for example booleans as the internal storage type ([u8]).
     pub async fn from_server(table: &str, client: &klickhouse::Client) -> Result<Self, Error> {
         debug!(table, "Retrieving table information");
         #[derive(klickhouse::Row, Debug)]
@@ -204,7 +205,8 @@ PRIMARY KEY({})
 struct BlockIterator<'a> {
     info: klickhouse::block::BlockInfo,
     column_types: IndexMap<String, klickhouse::Type>,
-    iters: IndexMap<String, Box<dyn ExactSizeIterator<Item = klickhouse::Value> + 'a>>,
+    iters:
+        IndexMap<String, Box<dyn ExactSizeIterator<Item = klickhouse::Value> + Send + Sync + 'a>>,
 }
 
 impl<'a> Iterator for BlockIterator<'a> {
@@ -318,7 +320,7 @@ macro_rules! extract_vals {
 pub(crate) fn series_to_values<'a>(
     series: &'a Series,
     type_: ClickhouseType,
-) -> Result<Box<dyn ExactSizeIterator<Item = klickhouse::Value> + 'a>, Error> {
+) -> Result<Box<dyn ExactSizeIterator<Item = klickhouse::Value> + Send + Sync + 'a>, Error> {
     Ok(match type_ {
         ClickhouseType::Native(klickhouse::Type::String) => {
             extract_vals!(series, String, str)
