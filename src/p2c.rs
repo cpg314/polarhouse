@@ -28,6 +28,12 @@ pub struct TableCreationOptions<'a> {
 }
 
 impl ClickhouseTable {
+    pub fn types_all(&self) -> String {
+        self.types
+            .iter()
+            .map(|(name, type_)| format!("  `{}` {},", name, type_))
+            .join("\n")
+    }
     /// Retrieve the table schema from the Clickhouse server.
     ///
     /// The output can be passed to [get_df_query](crate::get_df_query) to get an exact mapping of types.
@@ -121,10 +127,7 @@ PRIMARY KEY({})
                 ""
             },
             self.name,
-            self.types
-                .iter()
-                .map(|(name, type_)| format!("  `{}` {},", name, type_))
-                .join("\n"),
+            self.types_all(),
             primary_keys.join(", "),
         ))
     }
