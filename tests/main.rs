@@ -38,7 +38,7 @@ async fn test() -> anyhow::Result<()> {
     let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await?;
 
     // Setup
-    let table_name = "superheros";
+    let table_name = "superheroes";
     ch.execute(format!("DROP TABLE IF EXISTS {}", table_name))
         .await?;
 

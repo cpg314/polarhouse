@@ -1,8 +1,8 @@
 [package]
 name = "polarhouse"
-version = "0.1.0"
-edition = "2021"
-license = "MIT OR Apache-2.0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [profile.release]
 incremental = true
@@ -13,10 +13,18 @@ anyhow = "1.0.79"
 polars = { version = "0.37.0", features = ["dtype-full", "parquet", "lazy", "strings", "meta", "regex"] }
 tracing = { version = "0.1.37", features = ["attributes"] }
 tracing-subscriber = { version = "0.3.17", features = ["json"] }
-klickhouse = "0.11.0"
 itertools = "0.12.0"
 tokio = { version = "1.35.1", features = ["full"] }
 futures = "0.3.30"
 thiserror = "1.0.56"
 derivative = "2.2.0"
+klickhouse.workspace = true
 
+[workspace.dependencies]
+klickhouse = "0.11.0"
+
+[workspace]
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
