@@ -15,6 +15,7 @@ use std::str::FromStr;
 pub enum ClickhouseType {
     Native(klickhouse::Type),
     Bool,
+    Json,
     Nullable(Box<ClickhouseType>),
 }
 impl ClickhouseType {
@@ -46,6 +47,7 @@ impl From<ClickhouseType> for klickhouse::Type {
         match source {
             ClickhouseType::Native(n) => n,
             ClickhouseType::Bool => klickhouse::Type::UInt8,
+            ClickhouseType::Json => klickhouse::Type::String,
             ClickhouseType::Nullable(n) => {
                 klickhouse::Type::Nullable(Box::new(n.as_ref().clone().into()))
             }
@@ -58,6 +60,7 @@ impl std::fmt::Display for ClickhouseType {
         match self {
             ClickhouseType::Native(n) => write!(f, "{}", n),
             ClickhouseType::Bool => write!(f, "Bool"),
+            ClickhouseType::Json => write!(f, "String"),
             ClickhouseType::Nullable(n) => write!(f, "Nullable({})", n),
         }
     }
