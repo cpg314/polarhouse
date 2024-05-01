@@ -48,6 +48,8 @@ impl Client {
 #[pymodule]
 #[pyo3(name = "polarhouse")]
 fn polarhouse_module(_py: Python<'_>, m: &PyModule) -> PyResult<()> {
+    // It appears that enabling the string cache from Python has no effect.
+    polarhouse::polars::enable_string_cache();
     m.add_class::<Client>()?;
     Ok(())
 }

@@ -7,6 +7,7 @@ mod structs;
 pub use errors::*;
 mod p2c;
 pub use c2p::get_df_query;
+pub use polars;
 
 use std::str::FromStr;
 
