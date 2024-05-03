@@ -1,0 +1,21 @@
+[tasks.default]
+workspace = false
+clear = true
+script = '''
+#!/usr/bin/env bash
+set -euo pipefail
+env | rg CARGO_MAKE | sort
+VERSION=$(cat Cargo.toml | tomlq -r ".workspace.package.version")
+PACKAGE=$CARGO_MAKE_PROJECT_NAME
+RELEASE=1
+ARCH=x86_64-unknown-linux-gnu 
+BUILD_OUT=target-cross/$ARCH/release/
+mkdir -p $BUILD_OUT
+OUT=target-cross/packages
+mkdir -p $OUT
+
+cross build --workspace -r --target $ARCH --target-dir target-cross
+cp target-cross/x86_64-unknown-linux-gnu/release/libpolarhouse.so py/polarhouse.so
+python -m build -w -o $OUT py
+tree $OUT
+'''
