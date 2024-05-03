@@ -48,6 +48,9 @@ async fn get_df_stream(
     series.retain(|_, vals| !vals.is_empty());
 
     let lengths: HashSet<usize> = series.values().map(|s| s.len()).collect();
+    if lengths.is_empty() {
+        return Ok(DataFrame::default());
+    }
     if lengths.len() != 1 {
         return Err(Error::MismatchingLengths(lengths));
     }

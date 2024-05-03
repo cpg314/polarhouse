@@ -68,7 +68,7 @@ An alternative solution would be to write an [Arrow Database Connectivity](https
 ### Tests
 
 ```
-$ docker run --network host --rm --name clickhouse clickhouse
+$ docker run --network host --rm --name clickhouse clickhouse/clickhouse-server:latest
 $ cargo nextest run -r --nocapture
 ```
 

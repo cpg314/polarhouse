@@ -76,6 +76,17 @@ async fn test() -> anyhow::Result<()> {
     assert_eq!(df, df2);
     println!("{}", df2);
 
+    // A query that returns no results
+    let df2 = polarhouse::get_df_query(
+        klickhouse::SelectBuilder::new(table_name)
+            .select("*")
+            .where_("name = 'invalid'"),
+        Default::default(),
+        &ch,
+    )
+    .await?;
+    assert!(df2.is_empty());
+
     // Get types from Clickhouse, which allows retrieving booleans as bools rather than u8.
     let table = polarhouse::ClickhouseTable::from_server(table_name, &ch).await?;
     let df2 = table
