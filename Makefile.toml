@@ -1,21 +1,17 @@
-[tasks.default]
-workspace = false
-clear = true
-script = '''
-#!/usr/bin/env bash
-set -euo pipefail
-env | rg CARGO_MAKE | sort
-VERSION=$(cat Cargo.toml | tomlq -r ".workspace.package.version")
-PACKAGE=$CARGO_MAKE_PROJECT_NAME
-RELEASE=1
-ARCH=x86_64-unknown-linux-gnu 
-BUILD_OUT=target-cross/$ARCH/release/
-mkdir -p $BUILD_OUT
-OUT=target-cross/packages
-mkdir -p $OUT
+extend = "common.toml"
 
-cross build --workspace -r --target $ARCH --target-dir target-cross
+[config]
+load_script = "wget -nc https://raw.githubusercontent.com/cpg314/cargo-make-template/v0.1.0/common.toml"
+
+[tasks.packages]
+dependencies = ["cross"]
+script = '''
+set -euo pipefail
 cp target-cross/x86_64-unknown-linux-gnu/release/libpolarhouse.so py/polarhouse.so
-python -m build -w -o $OUT py
-tree $OUT
+python -m build -w -o $PACKAGES py
+tree $PACKAGES
 '''
+[tasks.tar]
+clear = true
+[tasks.nfpm]
+clear = true
