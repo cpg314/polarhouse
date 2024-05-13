@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use pyo3::{
     exceptions::{PyException, PyIOError},
     prelude::*,
@@ -32,6 +33,12 @@ impl Client {
             .map_err(|e| PyException::new_err(format!("Failed to connect to Clickhouse: {}", e)))
             .map(Client)
         })
+    }
+    fn get_df_query_file<'p>(&self, py: Python<'p>, filename: PathBuf) -> PyResult<&'p PyAny> {
+        let sql = std::fs::read_to_string(&filename).map_err(|e| {
+            PyIOError::new_err(format!("Failed to read from {:?}: {}", filename, e))
+        })?;
+        self.get_df_query(py, sql)
     }
     fn get_df_query<'p>(&self, py: Python<'p>, query: String) -> PyResult<&'p PyAny> {
         let locals = pyo3_asyncio::TaskLocals::with_running_loop(py)?.copy_context(py)?;
