@@ -1,6 +1,6 @@
 [project]
 name = "polarhouse"
-version = "0.1.0"
+dynamic = ["version"]
 dependencies = [
     "polars==0.20.7",
 ]

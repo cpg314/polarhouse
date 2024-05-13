@@ -3,7 +3,7 @@ import os
 
 setup(
     name="polarhouse",
-    version=os.environ.get("VERSION"),
+    version=os.environ.get("CARGO_MAKE_CRATE_VERSION"),
     py_modules=["polarhouse"],
     packages=[""],
     package_data={"": ["polarhouse.so"]},
