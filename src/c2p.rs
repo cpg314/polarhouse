@@ -10,9 +10,50 @@ use tracing::*;
 
 use super::{structs, ClickhouseType, Error};
 
+pub struct GetOptions {
+    pub unflatten_structs: bool,
+    pub types: IndexMap<String, ClickhouseType>,
+}
+impl Default for GetOptions {
+    fn default() -> Self {
+        Self {
+            unflatten_structs: true,
+            types: Default::default(),
+        }
+    }
+}
+
+/// Retrieve Clickhouse query results as a [DataFrame].
+///
+/// The schema is inferred from the query for columns not present in the `types` argument, which can
+/// be used to correct e.g. booleans returned by Clickhouse as their internal [u8] representation.
+/// See also the [table_types_from_clickhouse](crate::table_types_from_clickhouse) method.
+pub async fn get_df_query(
+    query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+    options: GetOptions,
+    client: &klickhouse::Client,
+) -> Result<DataFrame, Error> {
+    debug!("Retrieving data from Clickhouse",);
+
+    let mut resp = client.query_raw(query).await?.map_err(Error::from);
+    let initial = resp.next().await.ok_or_else(|| {
+        klickhouse::KlickhouseError::ProtocolError("Missing initial block".into())
+    })??;
+    debug!(?initial, "Received initial block");
+    let mut ch_types: IndexMap<String, ClickhouseType> = initial
+        .column_types
+        .into_iter()
+        .map(|(col, type_)| -> Result<_, Error> { Ok((col, ClickhouseType::from(type_))) })
+        .try_collect()?;
+    ch_types.extend(options.types.clone());
+
+    get_df_stream(resp, ch_types, options).await
+}
+
 async fn get_df_stream(
     resp: impl Stream<Item = Result<klickhouse::block::Block, Error>>,
     ch_types: IndexMap<String, ClickhouseType>,
+    options: GetOptions,
 ) -> Result<DataFrame, Error> {
     debug!(?ch_types, "Building dataframe from stream");
     let mut series: IndexMap<String, Series> = ch_types
@@ -54,33 +95,10 @@ async fn get_df_stream(
     if lengths.len() != 1 {
         return Err(Error::MismatchingLengths(lengths));
     }
-    Ok(structs::unflatten(series)?.into_values().collect())
-}
-
-/// Retrieve Clickhouse query results as a [DataFrame].
-///
-/// The schema is inferred from the query for columns not present in the `types` argument, which can be used to correct e.g. booleans returned by Clickhouse as their internal [u8] representation.
-/// See also the [table_types_from_clickhouse](crate::table_types_from_clickhouse) method.
-pub async fn get_df_query(
-    query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
-    types: IndexMap<String, ClickhouseType>,
-    client: &klickhouse::Client,
-) -> Result<DataFrame, Error> {
-    debug!("Retrieving data from Clickhouse",);
-
-    let mut resp = client.query_raw(query).await?.map_err(Error::from);
-    let initial = resp.next().await.ok_or_else(|| {
-        klickhouse::KlickhouseError::ProtocolError("Missing initial block".into())
-    })??;
-    debug!(?initial, "Received initial block");
-    let mut ch_types: IndexMap<String, ClickhouseType> = initial
-        .column_types
-        .into_iter()
-        .map(|(col, type_)| -> Result<_, Error> { Ok((col, ClickhouseType::from(type_))) })
-        .try_collect()?;
-    ch_types.extend(types);
-
-    get_df_stream(resp, ch_types).await
+    if options.unflatten_structs {
+        series = structs::unflatten(series)?;
+    }
+    Ok(series.into_values().collect())
 }
 
 impl TryFrom<&ClickhouseType> for DataType {

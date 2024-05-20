@@ -1,4 +1,4 @@
-use polarhouse::TableCreationOptions;
+use polarhouse::{GetOptions, TableCreationOptions};
 use polars::prelude::*;
 
 fn create_df() -> anyhow::Result<DataFrame> {
@@ -75,6 +75,19 @@ async fn test() -> anyhow::Result<()> {
     .await?;
     assert_eq!(df, df2);
     println!("{}", df2);
+
+    // Do not unflatten structs
+    let df2 = polarhouse::get_df_query(
+        klickhouse::SelectBuilder::new(table_name).select("*"),
+        GetOptions {
+            unflatten_structs: false,
+            ..Default::default()
+        },
+        &ch,
+    )
+    .await?;
+    println!("{}", df2);
+    assert_eq!(df2.get_column_names().len(), 7);
 
     // A query that returns no results
     let df2 = polarhouse::get_df_query(

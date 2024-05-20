@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 use log::*;
 use polarhouse::polars::prelude::*;
+use polarhouse::GetOptions;
 use pyo3::{
     exceptions::{PyException, PyIOError},
     prelude::*,
@@ -49,18 +50,31 @@ impl Client {
             .map(|inner| Client { inner, cache })
         })
     }
-    fn get_df_query_file<'p>(&self, py: Python<'p>, filename: PathBuf) -> PyResult<&'p PyAny> {
+    #[pyo3(signature = (filename, unflatten_structs=true))]
+    fn get_df_query_file<'p>(
+        &self,
+        py: Python<'p>,
+        filename: PathBuf,
+        unflatten_structs: bool,
+    ) -> PyResult<&'p PyAny> {
         let sql = std::fs::read_to_string(&filename).map_err(|e| {
             PyIOError::new_err(format!("Failed to read from {:?}: {}", filename, e))
         })?;
-        self.get_df_query(py, sql)
+        self.get_df_query(py, sql, unflatten_structs)
     }
-    fn get_df_query<'p>(&self, py: Python<'p>, query: String) -> PyResult<&'p PyAny> {
+    #[pyo3(signature = (query, unflatten_structs=true))]
+    fn get_df_query<'p>(
+        &self,
+        py: Python<'p>,
+        query: String,
+        unflatten_structs: bool,
+    ) -> PyResult<&'p PyAny> {
         let locals = pyo3_asyncio::TaskLocals::with_running_loop(py)?.copy_context(py)?;
         let ch = self.inner.clone();
         let cache = if let Some(cache) = &self.cache {
             let mut s = DefaultHasher::new();
             query.hash(&mut s);
+            unflatten_structs.hash(&mut s);
             let hash = s.finish();
             let filename = cache.join(hash.to_string());
             if filename.is_file() {
@@ -83,9 +97,16 @@ impl Client {
             None
         };
         pyo3_asyncio::tokio::future_into_py_with_locals(py, locals.clone(), async move {
-            let mut df = polarhouse::get_df_query(query, Default::default(), &ch)
-                .await
-                .map_err(|e| PyIOError::new_err(e.to_string()))?;
+            let mut df = polarhouse::get_df_query(
+                query,
+                GetOptions {
+                    unflatten_structs,
+                    ..Default::default()
+                },
+                &ch,
+            )
+            .await
+            .map_err(|e| PyIOError::new_err(e.to_string()))?;
             if let Some(cache) = cache {
                 debug!("Saving to cache {:?}", cache);
                 let mut file = std::fs::File::create(cache)?;

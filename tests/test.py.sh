@@ -16,5 +16,5 @@ else
 fi
 
 export PYTHONPATH=$ROOT/target/release
-python $ROOT/tests/test.py
+python -m unittest $ROOT/tests/test.py
 deactivate

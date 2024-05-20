@@ -1,12 +1,13 @@
 #![doc = include_str!("../README.md")]
 
 mod c2p;
-pub use p2c::{ClickhouseTable, TableCreationOptions};
+mod table;
+pub use table::{ClickhouseTable, TableCreationOptions};
 mod errors;
 mod structs;
 pub use errors::*;
 mod p2c;
-pub use c2p::get_df_query;
+pub use c2p::{get_df_query, GetOptions};
 pub use polars;
 
 use std::str::FromStr;
