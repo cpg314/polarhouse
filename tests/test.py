@@ -1,4 +1,3 @@
-import asyncio
 import os
 import shutil
 import logging
@@ -23,6 +22,12 @@ class Test(unittest.IsolatedAsyncioTestCase):
 
     async def test_unflatten(self):
         df = await self.client.get_df_query(Test.query, unflatten_structs=False)
+        print(df)
+        assert len(df.columns) == 7
+
+        # Similar result with the unnest polars method
+        df = await self.client.get_df_query(Test.query)
+        df = df.unnest("address").unnest("city")
         print(df)
         assert len(df.columns) == 7
 
