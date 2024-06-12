@@ -8,7 +8,7 @@ More specifically, it allows:
 - inserting Polars Dataframes into Clickhouse tables (and creating these if necessary).
 - and vice-versa retrieving Clickhouse query results as Polars Dataframes.
 
-Communication with Clickhouse is made through the [klickhouse] crate.
+Polarhouse uses the native TCP Clickhouse protocol via the [`klickhouse`](https://github.com/Protryon/klickhouse) crate. It maps the Polars and Clickhouse types, and builds Polars `Series` (resp. Clickhouse columns) after transforming the data if necessary.
 
 ```
 Polars
@@ -27,7 +27,9 @@ Clickhouse
 └──────────┴─────────┴──────┴───────────────────┴────────────────────┴─────────────────┘
 ```
 
-### Polars to Clickhouse
+## Polars to Clickhouse
+
+### Rust
 
 ```rust
 let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await?;
@@ -44,7 +46,9 @@ table.create(&ch, TableCreateOptions { primary_keys: &["name"] , ..Default::defa
 table.insert_df(df, &ch).await?;
 ```
 
-### Clickhouse to Polars
+## Clickhouse to Polars
+
+### Rust
 
 ```rust
 let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await?;
@@ -57,22 +61,35 @@ let df: DataFrame = polarhouse::get_df_query(
 ).await?;
 ```
 
+### Python
+
+```python
+from polarhouse import Client
+client = await Client.connect("localhost:9000", caching=True)
+df = await self.client.get_df_query("SELECT * from superheros")
+
+```
+
 ## Status
 
 <p style="background:rgba(255,181,77,0.16);padding:0.75em;">
 This is for now only a proof of concept.
 </p>
 
-An alternative solution would be to write an [Arrow Database Connectivity](https://arrow.apache.org/docs/format/ADBC.html) driver for Clickhouse, and use [Polars' ADBC support](https://docs.pola.rs/user-guide/io/database/).
+## Alternative solutions
 
-### Tests
+- Use the `Arrow`, `ArrowStream` or `Parquet` [Clickhouse input/output formats](https://clickhouse.com/docs/en/interfaces/formats), which can be read and written from Polars.
+- Write an [Arrow Database Connectivity](https://arrow.apache.org/docs/format/ADBC.html) driver for Clickhouse, and use [Polars' ADBC support](https://docs.pola.rs/user-guide/io/database/).
+- Clickhouse to Polars: [ConnectorX](https://github.com/sfu-db/connector-x) (uses the [MySQL interface](https://clickhouse.com/docs/en/interfaces/mysql)).
+
+## Tests
 
 ```
 $ docker run --network host --rm --name clickhouse clickhouse/clickhouse-server:latest
 $ cargo nextest run -r --nocapture
 ```
 
-### Supported types
+## Supported types
 
 - [x] Integers
 - [x] Floating points
@@ -84,6 +101,7 @@ $ cargo nextest run -r --nocapture
 - [x] Lists (Polars) / Arrays (Clickhouse)
 - [x] UUIDs (mapped to Strings in Polars)
 - [ ] Arrays (Polars)
+- [ ] Tuples
 - [ ] DateTime
 - [ ] Time
 - [ ] Duration
