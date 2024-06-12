@@ -29,6 +29,10 @@ impl Client {
         password: String,
         caching: bool,
     ) -> PyResult<&PyAny> {
+        info!("Connecting to Clickhouse server at {}", address);
+        if caching {
+            info!("Caching enabled");
+        }
         let locals = pyo3_asyncio::TaskLocals::with_running_loop(py)?.copy_context(py)?;
         let cache = caching.then(dirs::cache_dir).flatten().and_then(|c| {
             let c = c.join("polarhouse");
@@ -46,7 +50,7 @@ impl Client {
                 },
             )
             .await
-            .map_err(|e| PyException::new_err(format!("Failed to connect to Clickhouse: {}", e)))
+            .map_err(|e| PyException::new_err(format!("Failed to connect to Clickhouse: {:?}", e)))
             .map(|inner| Client { inner, cache })
         })
     }
@@ -78,7 +82,7 @@ impl Client {
             let hash = s.finish();
             let filename = cache.join(hash.to_string());
             if filename.is_file() {
-                debug!("Reading from cache {:?}", filename);
+                info!("Reading from cache {:?}", filename);
                 let reader = std::fs::read(&filename)?;
                 let reader = std::io::Cursor::new(reader);
                 match ParquetReader::new(reader).finish() {
@@ -97,6 +101,9 @@ impl Client {
             None
         };
         pyo3_asyncio::tokio::future_into_py_with_locals(py, locals.clone(), async move {
+            info!("Sending query");
+            let start = std::time::Instant::now();
+            debug!("{}", query);
             let mut df = polarhouse::get_df_query(
                 query,
                 GetOptions {
@@ -106,7 +113,8 @@ impl Client {
                 &ch,
             )
             .await
-            .map_err(|e| PyIOError::new_err(e.to_string()))?;
+            .map_err(|e| PyIOError::new_err(format!("{:?}", e)))?;
+            info!("Received response in {:?}", start.elapsed());
             if let Some(cache) = cache {
                 debug!("Saving to cache {:?}", cache);
                 let mut file = std::fs::File::create(cache)?;
