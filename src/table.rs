@@ -1,13 +1,13 @@
 use std::collections::HashSet;
 
-use futures::stream::{self, TryStreamExt};
+use futures::stream::{self, StreamExt, TryStreamExt};
 use itertools::Itertools;
 use klickhouse::IndexMap;
 use polars::prelude::*;
 use tracing::*;
 
 use super::{structs, ClickhouseType, Error};
-use crate::p2c::BlockIntoIterator;
+use crate::{clickhouse::ClickhouseClient, p2c::BlockIntoIterator};
 
 pub type ValueMap = IndexMap<String, klickhouse::Value>;
 
@@ -38,7 +38,7 @@ impl ClickhouseTable {
     ///
     /// The output can be passed to [get_df_query](crate::get_df_query) to get an exact mapping of types.
     /// Indeed, Clickhouse returns for example booleans as the internal storage type ([u8]).
-    pub async fn from_server(table: &str, client: &klickhouse::Client) -> Result<Self, Error> {
+    pub async fn from_server(table: &str, client: &impl ClickhouseClient) -> Result<Self, Error> {
         debug!(table, "Retrieving table information");
         #[derive(klickhouse::Row, Debug)]
         struct SchemaRow {
@@ -49,21 +49,22 @@ impl ClickhouseTable {
         Ok(Self {
             name: table.into(),
             types: client
-                .query_collect::<SchemaRow>(format!("DESCRIBE TABLE {}", table))
+                .query::<SchemaRow>(format!("DESCRIBE TABLE {}", table))
                 .await?
-                .into_iter()
-                .map(|row| {
+                .map_err(Error::from)
+                .and_then(|row| async move {
                     row.type_
                         .parse::<ClickhouseType>()
                         .map(|type_| (row.name, type_))
                 })
-                .try_collect()?,
+                .try_collect()
+                .await?,
         })
     }
     pub async fn get_df_query(
         &self,
         query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
-        client: &klickhouse::Client,
+        client: &impl ClickhouseClient,
     ) -> Result<DataFrame, Error> {
         crate::get_df_query(
             query,
@@ -143,13 +144,13 @@ impl ClickhouseTable {
     pub async fn create<'a>(
         &self,
         options: TableCreationOptions<'a>,
-        client: &klickhouse::Client,
+        client: &impl ClickhouseClient,
     ) -> Result<(), Error> {
         debug!(self.name, "Creating table");
         let suffix = options.suffix.to_string();
-        Ok(client
+        client
             .execute([self.create_query(options)?, suffix].join("\n"))
-            .await?)
+            .await
     }
     /// Insert a [DataFrame] in Clickhouse.
     /// The schemas must match.
@@ -159,7 +160,7 @@ impl ClickhouseTable {
         &self,
         df: DataFrame,
         defaults: ValueMap,
-        client: &klickhouse::Client,
+        client: &impl ClickhouseClient,
     ) -> Result<(), Error> {
         debug!(self.name, shape = ?df.shape(), "Inserting dataframe",);
         let df = structs::flatten(df)?;

@@ -3,13 +3,14 @@ use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 use log::*;
-use polarhouse::polars::prelude::*;
-use polarhouse::GetOptions;
 use pyo3::{
     exceptions::{PyException, PyIOError},
     prelude::*,
 };
 use pyo3_polars::PyDataFrame;
+
+use polarhouse::polars::prelude::*;
+use polarhouse::GetOptions;
 
 #[pyclass]
 struct Client {

@@ -1,5 +1,6 @@
-use polarhouse::{GetOptions, TableCreationOptions};
 use polars::prelude::*;
+
+use polarhouse::{GetOptions, TableCreationOptions};
 
 fn create_df() -> anyhow::Result<DataFrame> {
     let name = Series::new("name", &["Batman", "Superman"]);

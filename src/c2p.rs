@@ -9,6 +9,7 @@ use polars::prelude::*;
 use tracing::*;
 
 use super::{structs, ClickhouseType, Error};
+use crate::clickhouse::ClickhouseClient;
 
 pub struct GetOptions {
     pub unflatten_structs: bool,
@@ -28,17 +29,25 @@ impl Default for GetOptions {
 /// The schema is inferred from the query for columns not present in the `types` argument, which can
 /// be used to correct e.g. booleans returned by Clickhouse as their internal [u8] representation.
 /// See also the [table_types_from_clickhouse](crate::table_types_from_clickhouse) method.
-pub async fn get_df_query(
+pub async fn get_df_query<C: ClickhouseClient>(
     query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
     options: GetOptions,
-    client: &klickhouse::Client,
+    client: &C,
 ) -> Result<DataFrame, Error> {
     debug!("Retrieving data from Clickhouse",);
 
-    let mut resp = client.query_raw(query).await?.map_err(Error::from);
-    let initial = resp.next().await.ok_or_else(|| {
-        klickhouse::KlickhouseError::ProtocolError("Missing initial block".into())
-    })??;
+    let mut resp = client.query_raw(query).await?;
+    let initial = match resp.next().await {
+        Some(initial) => initial?,
+        None if !C::sends_initial_block() => {
+            return Ok(DataFrame::default());
+        }
+        _ => {
+            return Err(
+                klickhouse::KlickhouseError::ProtocolError("Missing initial block".into()).into(),
+            );
+        }
+    };
     debug!(?initial, "Received initial block");
     let mut ch_types: IndexMap<String, ClickhouseType> = initial
         .column_types
