@@ -11,6 +11,30 @@ cp target-cross/x86_64-unknown-linux-gnu/release/libpolarhouse.so py/polarhouse.
 python -m build -w -o $PACKAGES py
 tree $PACKAGES
 '''
+
+[tasks.test-py]
+script = '''
+set -euo pipefail
+
+cargo build -r -p py
+
+pushd target/release
+ln -s libpolarhouse.so polarhouse.so || true
+popd
+
+if [ ! -d "venv" ]; then
+    python -m virtualenv venv
+    source venv/bin/activate
+    pip install polars==0.20.7
+else
+    source venv/bin/activate
+fi
+
+export PYTHONPATH=target/release
+python -m unittest tests/test.py
+deactivate
+'''
+
 [tasks.tar]
 clear = true
 [tasks.nfpm]

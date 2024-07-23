@@ -32,4 +32,10 @@ pub enum Error {
     ShouldRechunk,
     #[error("The constructed series do not have the same lengths: {0:?}")]
     MismatchingLengths(HashSet<usize>),
+    #[error("HTTP error: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("HTTP I/O error: {0}")]
+    HttpIO(std::io::Error),
+    #[error("Polars to Clickhouse unsupported with HTTP client")]
+    HttpInsertion,
 }

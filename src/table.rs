@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use futures::stream::{self, StreamExt, TryStreamExt};
+use futures::stream::{self, TryStreamExt};
 use itertools::Itertools;
 use klickhouse::IndexMap;
 use polars::prelude::*;

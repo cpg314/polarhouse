@@ -2,7 +2,7 @@
 
 mod c2p;
 mod clickhouse;
-pub use clickhouse::ClickhouseClient;
+pub use clickhouse::{http::HttpClient, ClickhouseClient};
 mod table;
 pub use table::{ClickhouseTable, TableCreationOptions};
 mod errors;

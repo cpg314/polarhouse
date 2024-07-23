@@ -1,6 +1,7 @@
 use polars::prelude::*;
+use yare::parameterized;
 
-use polarhouse::{GetOptions, TableCreationOptions};
+use polarhouse::{ClickhouseClient, GetOptions, HttpClient, TableCreationOptions};
 
 fn create_df() -> anyhow::Result<DataFrame> {
     let name = Series::new("name", &["Batman", "Superman"]);
@@ -31,42 +32,11 @@ fn create_df() -> anyhow::Result<DataFrame> {
     Ok([name, is_rich, age, powers, address].into_iter().collect())
 }
 
-#[tokio::test]
-async fn test() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
-    polars::enable_string_cache();
-
-    let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await?;
-
-    // Setup
-    let table_name = "superheroes";
-    ch.execute(format!("DROP TABLE IF EXISTS {}", table_name))
-        .await?;
-
-    // Create dataframe
-    let df = create_df()?;
-    println!("{}", df);
-
-    println!("{:?}", df.schema());
-
-    // Insert dataframe into Clickhouse
-    let table = polarhouse::ClickhouseTable::from_polars_schema(
-        table_name,
-        df.schema(),
-        Default::default(),
-        ["age", "is_rich", "address.city.state"],
-    )?;
-    table
-        .create(
-            TableCreationOptions {
-                primary_keys: &["name"],
-                ..Default::default()
-            },
-            &ch,
-        )
-        .await?;
-    table.insert_df(df.clone(), Default::default(), &ch).await?;
-
+async fn retrieve(
+    df: DataFrame,
+    table_name: &str,
+    ch: impl ClickhouseClient,
+) -> anyhow::Result<()> {
     // Retrieve dataframe from Clickhouse
     let df2 = polarhouse::get_df_query(
         klickhouse::SelectBuilder::new(table_name).select("*"),
@@ -107,6 +77,52 @@ async fn test() -> anyhow::Result<()> {
         .get_df_query(klickhouse::SelectBuilder::new(table_name).select("*"), &ch)
         .await?;
     println!("{}", df2);
+    Ok(())
+}
+#[parameterized(http = {true}, native = {false})]
+#[test_macro(tokio::test)]
+async fn test(http: bool) -> anyhow::Result<()> {
+    tracing_subscriber::fmt::init();
+    polars::enable_string_cache();
+
+    let ch = klickhouse::Client::connect("localhost:9000", Default::default()).await?;
+
+    // Setup
+    let table_name = &format!("superheroes_{:?}", http);
+    ch.execute(format!("DROP TABLE IF EXISTS {}", table_name))
+        .await?;
+
+    // Create dataframe
+    let df = create_df()?;
+    println!("{}", df);
+
+    println!("{:?}", df.schema());
+
+    // Insert dataframe into Clickhouse
+    let table = polarhouse::ClickhouseTable::from_polars_schema(
+        table_name,
+        df.schema(),
+        Default::default(),
+        ["age", "is_rich", "address.city.state"],
+    )?;
+    table
+        .create(
+            TableCreationOptions {
+                primary_keys: &["name"],
+                ..Default::default()
+            },
+            &ch,
+        )
+        .await?;
+    table.insert_df(df.clone(), Default::default(), &ch).await?;
+
+    println!("Retrieve data",);
+    if http {
+        let ch_http = HttpClient::new("http://localhost:8123", "default", None);
+        retrieve(df, table_name, ch_http).await?;
+    } else {
+        retrieve(df.clone(), table_name, ch).await?;
+    }
 
     Ok(())
 }
