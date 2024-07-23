@@ -31,7 +31,7 @@ else
 fi
 
 export PYTHONPATH=target/release
-python -m unittest tests/test.py
+python tests/test.py
 deactivate
 '''
 

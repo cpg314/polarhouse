@@ -1,7 +1,7 @@
 use polars::prelude::*;
 use yare::parameterized;
 
-use polarhouse::{ClickhouseClient, GetOptions, HttpClient, TableCreationOptions};
+use polarhouse::{ClientGeneric, GetOptions, HttpClient, TableCreationOptions};
 
 fn create_df() -> anyhow::Result<DataFrame> {
     let name = Series::new("name", &["Batman", "Superman"]);
@@ -32,11 +32,7 @@ fn create_df() -> anyhow::Result<DataFrame> {
     Ok([name, is_rich, age, powers, address].into_iter().collect())
 }
 
-async fn retrieve(
-    df: DataFrame,
-    table_name: &str,
-    ch: impl ClickhouseClient,
-) -> anyhow::Result<()> {
+async fn retrieve(df: DataFrame, table_name: &str, ch: impl ClientGeneric) -> anyhow::Result<()> {
     // Retrieve dataframe from Clickhouse
     let df2 = polarhouse::get_df_query(
         klickhouse::SelectBuilder::new(table_name).select("*"),
@@ -118,7 +114,7 @@ async fn test(http: bool) -> anyhow::Result<()> {
 
     println!("Retrieve data",);
     if http {
-        let ch_http = HttpClient::new("http://localhost:8123", "default", None);
+        let ch_http = HttpClient::new("http://localhost:8123", Some("default"), "default", None);
         retrieve(df, table_name, ch_http).await?;
     } else {
         retrieve(df.clone(), table_name, ch).await?;

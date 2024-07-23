@@ -14,8 +14,6 @@ class Test(unittest.IsolatedAsyncioTestCase):
         logging.basicConfig()
         logging.getLogger().setLevel(logging.DEBUG)
 
-        self.client = await Client.connect("localhost:9000")
-
     async def test_main(self):
         df = await self.client.get_df_query(Test.query)
         print(df)
@@ -48,3 +46,20 @@ class Test(unittest.IsolatedAsyncioTestCase):
         for i in range(2):
             df2 = await client.get_df_query(Test.query)
             assert df.equals(df2)
+
+
+class NativeTest(Test):
+    async def asyncSetUp(self):
+        self.client = await Client.connect("localhost:9000")
+        Test.setUp(self)
+
+
+class HttpTest(Test):
+    async def asyncSetUp(self):
+        self.client = await Client.connect("http://localhost:8123")
+        Test.setUp(self)
+
+
+if __name__ == "__main__":
+    suite = unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(t) for t in [NativeTest, HttpTest]])
+    unittest.TextTestRunner(verbosity=2).run(suite)

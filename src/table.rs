@@ -7,7 +7,7 @@ use polars::prelude::*;
 use tracing::*;
 
 use super::{structs, ClickhouseType, Error};
-use crate::{clickhouse::ClickhouseClient, p2c::BlockIntoIterator};
+use crate::{clickhouse::ClientGeneric, p2c::BlockIntoIterator};
 
 pub type ValueMap = IndexMap<String, klickhouse::Value>;
 
@@ -38,7 +38,7 @@ impl ClickhouseTable {
     ///
     /// The output can be passed to [get_df_query](crate::get_df_query) to get an exact mapping of types.
     /// Indeed, Clickhouse returns for example booleans as the internal storage type ([u8]).
-    pub async fn from_server(table: &str, client: &impl ClickhouseClient) -> Result<Self, Error> {
+    pub async fn from_server(table: &str, client: &impl ClientGeneric) -> Result<Self, Error> {
         debug!(table, "Retrieving table information");
         #[derive(klickhouse::Row, Debug)]
         struct SchemaRow {
@@ -63,8 +63,8 @@ impl ClickhouseTable {
     }
     pub async fn get_df_query(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
-        client: &impl ClickhouseClient,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
+        client: &impl ClientGeneric,
     ) -> Result<DataFrame, Error> {
         crate::get_df_query(
             query,
@@ -144,7 +144,7 @@ impl ClickhouseTable {
     pub async fn create<'a>(
         &self,
         options: TableCreationOptions<'a>,
-        client: &impl ClickhouseClient,
+        client: &impl ClientGeneric,
     ) -> Result<(), Error> {
         debug!(self.name, "Creating table");
         let suffix = options.suffix.to_string();
@@ -160,7 +160,7 @@ impl ClickhouseTable {
         &self,
         df: DataFrame,
         defaults: ValueMap,
-        client: &impl ClickhouseClient,
+        client: &impl ClientGeneric,
     ) -> Result<(), Error> {
         debug!(self.name, shape = ?df.shape(), "Inserting dataframe",);
         let df = structs::flatten(df)?;

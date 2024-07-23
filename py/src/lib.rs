@@ -14,7 +14,7 @@ use polarhouse::GetOptions;
 
 #[pyclass]
 struct Client {
-    inner: klickhouse::Client,
+    inner: polarhouse::Client,
     cache: Option<PathBuf>,
 }
 
@@ -42,17 +42,21 @@ impl Client {
         });
 
         pyo3_asyncio::tokio::future_into_py_with_locals(py, locals.clone(), async move {
-            klickhouse::Client::connect(
-                address,
-                klickhouse::ClientOptions {
-                    username,
-                    default_database: database,
-                    password,
+            let inner = polarhouse::Client::connect(
+                &address,
+                Some(&database),
+                &username,
+                if password.is_empty() {
+                    None
+                } else {
+                    Some(&password)
                 },
             )
             .await
-            .map_err(|e| PyException::new_err(format!("Failed to connect to Clickhouse: {:?}", e)))
-            .map(|inner| Client { inner, cache })
+            .map_err(|e| {
+                PyException::new_err(format!("Failed to connect to Clickhouse: {:?}", e))
+            })?;
+            Ok(Client { inner, cache })
         })
     }
     #[pyo3(signature = (filename, unflatten_structs=true))]

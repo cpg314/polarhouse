@@ -4,20 +4,92 @@ use tokio::io::AsyncBufReadExt;
 
 use crate::Error;
 
-pub trait ClickhouseClient {
-    fn sends_initial_block() -> bool;
+#[derive(Clone)]
+pub enum Client {
+    Native(klickhouse::Client),
+    Http(http::HttpClient),
+}
+impl Client {
+    pub async fn connect(
+        address: &str,
+        default_database: Option<&str>,
+        username: &str,
+        password: Option<&str>,
+    ) -> Result<Self, Error> {
+        if address.starts_with("http://") || address.starts_with("https://") {
+            Ok(Self::Http(http::HttpClient::new(
+                address,
+                default_database,
+                username,
+                password,
+            )))
+        } else {
+            klickhouse::Client::connect(
+                address,
+                klickhouse::ClientOptions {
+                    username: username.into(),
+                    password: password.unwrap_or_default().into(),
+                    default_database: default_database.unwrap_or("default").into(),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map(Self::Native)
+            .map_err(Error::from)
+        }
+    }
+}
+// Manual dynamic dispatch boilerplace because the trait is not object-safe
+impl ClientGeneric for Client {
+    fn sends_initial_block(&self) -> bool {
+        match self {
+            Client::Native(c) => c.sends_initial_block(),
+            Client::Http(c) => c.sends_initial_block(),
+        }
+    }
+    async fn insert_native_raw(
+        &self,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
+        blocks: impl Stream<Item = Block> + Send + Sync + Unpin + 'static,
+    ) -> Result<impl Stream<Item = Result<Block, Error>>, Error> {
+        match self {
+            Client::Native(c) => Ok(c
+                .insert_native_raw(query, blocks)
+                .await?
+                .map_err(Error::from)
+                .boxed()),
+            Client::Http(c) => Ok(c
+                .insert_native_raw(query, blocks)
+                .await?
+                .map_err(Error::from)
+                .boxed()),
+        }
+    }
+    async fn query_raw(
+        &self,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
+    ) -> Result<impl Stream<Item = Result<Block, Error>> + Unpin, Error> {
+        match self {
+            Client::Native(c) => Ok(c.query_raw(query).await?.map_err(Error::from).boxed()),
+            Client::Http(c) => Ok(c.query_raw(query).await?.map_err(Error::from).boxed()),
+        }
+    }
+}
+
+pub trait ClientGeneric {
+    fn sends_initial_block(&self) -> bool;
     fn insert_native_raw(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
         blocks: impl Stream<Item = Block> + Send + Sync + Unpin + 'static,
     ) -> impl std::future::Future<Output = Result<impl Stream<Item = Result<Block, Error>>, Error>>;
     fn query_raw(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
     ) -> impl std::future::Future<Output = Result<impl Stream<Item = Result<Block, Error>> + Unpin, Error>>;
     fn execute(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
     ) -> impl std::future::Future<Output = Result<(), Error>> {
         // From the implementation of klickhouse::Client::execute
         async {
@@ -30,7 +102,7 @@ pub trait ClickhouseClient {
     }
     fn query<T: klickhouse::Row>(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
     ) -> impl std::future::Future<Output = Result<impl Stream<Item = Result<T, Error>> + Unpin, Error>>
     {
         // From the implementation of klickhouse::Client::query
@@ -49,13 +121,13 @@ pub trait ClickhouseClient {
         }
     }
 }
-impl ClickhouseClient for klickhouse::Client {
-    fn sends_initial_block() -> bool {
+impl ClientGeneric for klickhouse::Client {
+    fn sends_initial_block(&self) -> bool {
         true
     }
     async fn insert_native_raw(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
         blocks: impl Stream<Item = Block> + Send + Sync + Unpin + 'static,
     ) -> Result<impl Stream<Item = Result<Block, Error>>, Error> {
         Ok(self
@@ -65,7 +137,7 @@ impl ClickhouseClient for klickhouse::Client {
     }
     async fn query_raw(
         &self,
-        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+        query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
     ) -> Result<impl Stream<Item = Result<Block, Error>> + Unpin, Error> {
         Ok(self.query_raw(query).await?.map_err(Error::from))
     }
@@ -78,18 +150,26 @@ pub mod http {
     /// Client for the Clickhouse HTTP interface, using the native format.
     pub struct HttpClient {
         builder: reqwest::RequestBuilder,
+        database: String,
     }
     impl Clone for HttpClient {
         fn clone(&self) -> Self {
             Self {
                 builder: self.builder.try_clone().unwrap(),
+                database: self.database.clone(),
             }
         }
     }
 
     impl HttpClient {
-        pub fn new(url: &str, username: &str, password: Option<&str>) -> Self {
+        pub fn new(
+            url: &str,
+            default_database: Option<&str>,
+            username: &str,
+            password: Option<&str>,
+        ) -> Self {
             Self {
+                database: default_database.unwrap_or("default").into(),
                 builder: reqwest::Client::new()
                     .post(url)
                     .header(reqwest::header::TRANSFER_ENCODING, "chunked")
@@ -98,18 +178,18 @@ pub mod http {
         }
     }
 
-    impl ClickhouseClient for HttpClient {
-        fn sends_initial_block() -> bool {
+    impl ClientGeneric for HttpClient {
+        fn sends_initial_block(&self) -> bool {
             false
         }
         async fn query_raw(
             &self,
-            query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+            query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
         ) -> Result<impl Stream<Item = Result<Block, Error>> + Unpin, Error> {
             let resp = self
                 .clone()
                 .builder
-                .query(&[("default_format", "Native")])
+                .query(&[("default_format", "Native"), ("database", &self.database)])
                 .body(query.try_into()?.to_string())
                 .send()
                 .await?;
@@ -147,7 +227,7 @@ pub mod http {
         }
         async fn insert_native_raw(
             &self,
-            _query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+            _query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
             _blocks: impl Stream<Item = Block> + Send + Sync + Unpin + 'static,
         ) -> Result<impl Stream<Item = Result<Block, Error>>, Error> {
             Err::<stream::Empty<_>, _>(Error::HttpInsertion)

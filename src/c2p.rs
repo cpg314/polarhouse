@@ -9,7 +9,7 @@ use polars::prelude::*;
 use tracing::*;
 
 use super::{structs, ClickhouseType, Error};
-use crate::clickhouse::ClickhouseClient;
+use crate::clickhouse::ClientGeneric;
 
 pub struct GetOptions {
     pub unflatten_structs: bool,
@@ -29,8 +29,8 @@ impl Default for GetOptions {
 /// The schema is inferred from the query for columns not present in the `types` argument, which can
 /// be used to correct e.g. booleans returned by Clickhouse as their internal [u8] representation.
 /// See also the [table_types_from_clickhouse](crate::table_types_from_clickhouse) method.
-pub async fn get_df_query<C: ClickhouseClient>(
-    query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError>,
+pub async fn get_df_query<C: ClientGeneric>(
+    query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
     options: GetOptions,
     client: &C,
 ) -> Result<DataFrame, Error> {
@@ -39,7 +39,7 @@ pub async fn get_df_query<C: ClickhouseClient>(
     let mut resp = client.query_raw(query).await?;
     let initial = match resp.next().await {
         Some(initial) => initial?,
-        None if !C::sends_initial_block() => {
+        None if !client.sends_initial_block() => {
             return Ok(DataFrame::default());
         }
         _ => {
