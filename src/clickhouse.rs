@@ -2,7 +2,7 @@ use futures::{stream, Stream, StreamExt, TryStreamExt};
 use klickhouse::block::Block;
 use tokio::io::AsyncBufReadExt;
 
-use crate::Error;
+use crate::{Error, HttpError};
 
 #[derive(Clone)]
 pub enum Client {
@@ -30,7 +30,6 @@ impl Client {
                     username: username.into(),
                     password: password.unwrap_or_default().into(),
                     default_database: default_database.unwrap_or("default").into(),
-                    ..Default::default()
                 },
             )
             .await
@@ -192,7 +191,11 @@ pub mod http {
                 .query(&[("default_format", "Native"), ("database", &self.database)])
                 .body(query.try_into()?.to_string())
                 .send()
-                .await?;
+                .await
+                .map_err(HttpError::from)?;
+            if !resp.status().is_success() {
+                return Err(HttpError::Server(resp.text().await.unwrap_or_default()).into());
+            }
             let reader = tokio_util::io::StreamReader::new(
                 resp.bytes_stream()
                     .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)),
@@ -200,7 +203,7 @@ pub mod http {
             let stream = stream::unfold(reader, |mut reader| async {
                 match reader.fill_buf().await {
                     Err(e) => {
-                        return Some((Err(Error::HttpIO(e)), reader));
+                        return Some((Err(HttpError::IO(e).into()), reader));
                     }
                     Ok(buf) if buf.is_empty() => {
                         return None;
@@ -230,7 +233,7 @@ pub mod http {
             _query: impl TryInto<klickhouse::ParsedQuery, Error = klickhouse::KlickhouseError> + 'static,
             _blocks: impl Stream<Item = Block> + Send + Sync + Unpin + 'static,
         ) -> Result<impl Stream<Item = Result<Block, Error>>, Error> {
-            Err::<stream::Empty<_>, _>(Error::HttpInsertion)
+            Err::<stream::Empty<_>, _>(HttpError::Insertion.into())
         }
     }
 }

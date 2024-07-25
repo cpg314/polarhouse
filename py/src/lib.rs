@@ -53,9 +53,7 @@ impl Client {
                 },
             )
             .await
-            .map_err(|e| {
-                PyException::new_err(format!("Failed to connect to Clickhouse: {:?}", e))
-            })?;
+            .map_err(|e| PyException::new_err(format!("Failed to connect to Clickhouse: {}", e)))?;
             Ok(Client { inner, cache })
         })
     }
@@ -118,7 +116,7 @@ impl Client {
                 &ch,
             )
             .await
-            .map_err(|e| PyIOError::new_err(format!("{:?}", e)))?;
+            .map_err(|e| PyIOError::new_err(format!("{}", e)))?;
             info!("Received response in {:?}", start.elapsed());
             if let Some(cache) = cache {
                 debug!("Saving to cache {:?}", cache);

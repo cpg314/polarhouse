@@ -6,9 +6,9 @@ use super::ClickhouseType;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Polars error")]
+    #[error("Polars error: {0}")]
     Polars(#[from] PolarsError),
-    #[error("Klickhouse error")]
+    #[error("Klickhouse error: {0}")]
     Klickhouse(#[from] klickhouse::KlickhouseError),
     #[error("A Clickhouse client is required in ClickhouseTable")]
     MissingClient,
@@ -33,9 +33,17 @@ pub enum Error {
     #[error("The constructed series do not have the same lengths: {0:?}")]
     MismatchingLengths(HashSet<usize>),
     #[error("HTTP error: {0}")]
-    Http(#[from] reqwest::Error),
-    #[error("HTTP I/O error: {0}")]
-    HttpIO(std::io::Error),
+    Http(#[from] HttpError),
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum HttpError {
+    #[error("Request error: {0}")]
+    Request(#[from] reqwest::Error),
+    #[error("I/O error: {0}")]
+    IO(std::io::Error),
     #[error("Polars to Clickhouse unsupported with HTTP client")]
-    HttpInsertion,
+    Insertion,
+    #[error("Server error: {0}")]
+    Server(String),
 }

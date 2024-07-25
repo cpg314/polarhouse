@@ -6,9 +6,9 @@ import tempfile
 
 from polarhouse import Client
 
-
+# Run the main integration tests first to create the table
 class Test(unittest.IsolatedAsyncioTestCase):
-    query = "SELECT * from superheroes"
+    query = "SELECT * from superheroes_true"
 
     async def asyncSetUp(self):
         logging.basicConfig()
@@ -47,6 +47,10 @@ class Test(unittest.IsolatedAsyncioTestCase):
             df2 = await client.get_df_query(Test.query)
             assert df.equals(df2)
 
+    async def test_error(self):
+        with self.assertRaises(OSError):
+            await self.client.get_df_query("invalid")
+
 
 class NativeTest(Test):
     async def asyncSetUp(self):
@@ -61,5 +65,5 @@ class HttpTest(Test):
 
 
 if __name__ == "__main__":
-    suite = unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(t) for t in [NativeTest, HttpTest]])
+    suite = unittest.TestSuite([unittest.defaultTestLoader.loadTestsFromTestCase(t) for t in [HttpTest, NativeTest]])
     unittest.TextTestRunner(verbosity=2).run(suite)
