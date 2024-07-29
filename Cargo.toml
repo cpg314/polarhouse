@@ -29,7 +29,7 @@ klickhouse = { git = "https://github.com/cpg314/klickhouse.git", rev="a7365eba55
 members = [ "py" ]
 
 [workspace.package]
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 
