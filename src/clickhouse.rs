@@ -169,7 +169,10 @@ pub mod http {
         ) -> Self {
             Self {
                 database: default_database.unwrap_or("default").into(),
-                builder: reqwest::Client::new()
+                builder: reqwest::ClientBuilder::new()
+                    .zstd(true)
+                    .build()
+                    .unwrap()
                     .post(url)
                     .header(reqwest::header::TRANSFER_ENCODING, "chunked")
                     .basic_auth(username, password),
