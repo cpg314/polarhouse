@@ -23,7 +23,7 @@ reqwest = { version = "0.12.5", features = ["stream", "rustls-tls", "zstd"], def
 tokio-util = { version = "0.7.11", features = ["io"] }
 
 [workspace.dependencies]
-klickhouse = { git = "https://github.com/cpg314/klickhouse.git", rev="a7365eba55c7c4a15cbb6e002aea87e171f9bccc" }
+klickhouse = { version = "0.11.0-1", git = "https://github.com/cpg314/klickhouse.git", tag = "v0.11.0-1" }
 
 [workspace]
 members = [ "py" ]
