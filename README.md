@@ -27,6 +27,8 @@ Clickhouse
 └──────────┴─────────┴──────┴───────────────────┴────────────────────┴─────────────────┘
 ```
 
+This is not yet published on `crates.io`, as it depends on a fork of the `klickhouse` crate exposing the `Block::read` method (see [this PR](https://github.com/Protryon/klickhouse/pull/80)).
+
 ## Polars to Clickhouse
 
 ### Rust

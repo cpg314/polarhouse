@@ -32,6 +32,8 @@ members = [ "py" ]
 version = "0.1.5"
 edition = "2021"
 license = "MIT OR Apache-2.0"
+description = "Interoperability between Polars and Clickhouse "
+repository = "https://github.com/cpg314/polarhouse"
 
 [dev-dependencies]
 yare = "3.0.0"
