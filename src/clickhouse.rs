@@ -30,6 +30,7 @@ impl Client {
                     username: username.into(),
                     password: password.unwrap_or_default().into(),
                     default_database: default_database.unwrap_or("default").into(),
+                    ..Default::default()
                 },
             )
             .await
